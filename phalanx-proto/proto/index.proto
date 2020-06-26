@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package phalanx_index;
+
+option go_package = "pkg/proto";
+
+service IndexService {
+    rpc Status (StatusReq) returns (StatusReply) {}
+    rpc Get(GetReq) returns (GetReply) {}
+    rpc Set(SetReq) returns (SetReply) {}
+    rpc Delete(DeleteReq) returns (DeleteReply) {}
+    rpc BulkSet (BulkSetReq) returns (BulkSetReply) {}
+    rpc BulkDelete (BulkDeleteReq) returns (BulkDeleteReply) {}
+    rpc Commit (CommitReq) returns (CommitReply) {}
+    rpc Rollback (RollbackReq) returns (RollbackReply) {}
+    rpc Merge (MergeReq) returns (MergeReply) {}
+    rpc Push (PushReq) returns (PushReply) {}
+    rpc Pull (PullReq) returns (PullReply) {}
+    rpc Schema (SchemaReq) returns (SchemaReply) {}
+    rpc Search (SearchReq) returns (SearchReply) {}
+}
+
+message StatusReq {}
+
+message StatusReply {
+    string status = 1;
+}
+
+message GetReq {
+    string id = 1;
+}
+
+message GetReply {
+    string status = 1;
+    string doc = 2;
+}
+
+message SetReq {
+    string doc = 1;
+}
+
+message SetReply {
+    string status = 1;
+}
+
+message DeleteReq {
+    string id = 1;
+}
+
+message DeleteReply {
+    string status = 1;
+}
+
+message BulkSetReq {
+    repeated SetReq requests = 1;
+}
+
+message BulkSetReply {
+    string status = 1;
+}
+
+message BulkDeleteReq {
+    repeated DeleteReq requests = 1;
+}
+
+message BulkDeleteReply {
+    string status = 1;
+}
+
+message CommitReq {}
+
+message CommitReply {
+    string status = 1;
+}
+
+message RollbackReq {}
+
+message RollbackReply {
+    string status = 1;
+}
+
+message MergeReq {}
+
+message MergeReply {
+    string status = 1;
+}
+
+message PushReq {}
+
+message PushReply {
+    string status = 1;
+}
+
+message PullReq {}
+
+message PullReply {
+    string status = 1;
+}
+
+message SchemaReq {}
+
+message SchemaReply {
+    string status = 1;
+    string schema = 2;
+}
+
+message SearchReq {
+    string query = 1;
+    uint64 from = 2;
+    uint64 limit = 3;
+    bool exclude_count = 4;
+    bool exclude_docs = 5;
+    string facet_field = 6;
+    repeated string facet_prefixes = 7;
+}
+
+message SearchReply {
+    string status = 1;
+    string result = 2;
+}

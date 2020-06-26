@@ -1,0 +1,8 @@
+[package]
+name = "phalanx-common"
+version = "0.1.0"
+authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+env_logger = "0.7.1"

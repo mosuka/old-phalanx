@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "phalanx-client",
+    "phalanx-common",
+    "phalanx-proto",
+    "phalanx-server"
+]

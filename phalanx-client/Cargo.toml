@@ -1,0 +1,12 @@
+[package]
+name = "phalanx-client"
+version = "0.1.0"
+authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+rand = "0.7.3"
+tokio = { version = "0.2.21", features = [ "full" ] }
+tonic = "0.2.1"
+phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
+phalanx-proto = { version = "0.1.0", path = "../phalanx-proto" }

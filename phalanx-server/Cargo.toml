@@ -1,0 +1,35 @@
+[package]
+name = "phalanx-server"
+version = "0.1.0"
+authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
+edition = "2018"
+
+[[bin]]
+name = "phalanx"
+path = "src/main.rs"
+
+[dependencies]
+async-std = "1.6.1"
+async-trait = "0.1.36"
+cang-jie = "0.8.0"
+clap = "2.33.0"
+cloud-storage = "0.4.1"
+futures-util = "0.3.5"
+hyper = "0.13.5"
+jieba-rs = "0.5.0"
+lazy_static = "1.4.0"
+lindera-tantivy = "0.1.3"
+log = "0.4.8"
+num_cpus = "1.13.0"
+prometheus = "0.8.0"
+rusoto_core = "0.44.0"
+rusoto_s3 = "0.44.0"
+serde = { version = "1.0.106", features = ["derive"] }
+serde_json = "1.0.51"
+tantivy = "0.12.0"
+tokio = { version = "0.2.21", features = [ "full" ] }
+tonic = "0.2.1"
+walkdir = "2.3.1"
+
+phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
+phalanx-proto = { version = "0.1.0", path = "../phalanx-proto" }

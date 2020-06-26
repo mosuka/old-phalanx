@@ -1,0 +1,9 @@
+{
+  "id": "1",
+  "url": "https://github.com/mosuka/phalanx",
+  "name": "Phalanx",
+  "description": "Phalanx is a cloud-based index writer and searcher.",
+  "popularity": 0,
+  "category": ["/category/search/server", "/language/rust"],
+  "publish_date": "2020-06-21T10:41:00+09:00"
+}
