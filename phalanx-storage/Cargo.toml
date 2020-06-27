@@ -1,0 +1,15 @@
+[package]
+name = "phalanx-storage"
+version = "0.1.0"
+authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+async-trait = "0.1.36"
+tokio = { version = "0.2.21", features = [ "full" ] }
+serde_json = "1.0.51"
+rusoto_core = "0.44.0"
+rusoto_s3 = "0.44.0"
+log = "0.4.8"
+
+phalanx-common = { version = "0.1.0", path = "../phalanx-common" }

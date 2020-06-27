@@ -19,9 +19,10 @@ use phalanx_server::index::config::{
 };
 use phalanx_server::index::server::MyIndexService;
 use phalanx_server::metric::server::handle;
-use phalanx_server::storage::minio::{Minio, STORAGE_TYPE};
-use phalanx_server::storage::null::Null;
-use phalanx_server::storage::Storage;
+use phalanx_storage::storage::minio::Minio;
+use phalanx_storage::storage::minio::STORAGE_TYPE as MINIO_STORAGE_TYPE;
+use phalanx_storage::storage::null::Null;
+use phalanx_storage::storage::Storage;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -219,18 +220,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     index_config.unique_key_field = String::from(unique_key_field);
 
     let storage: Box<dyn Storage> = match storage_type {
-        STORAGE_TYPE => {
+        MINIO_STORAGE_TYPE => {
             info!("enable MinIO");
             Box::new(Minio::new(
                 minio_access_key,
                 minio_secret_key,
                 minio_endpoint,
             ))
-        },
+        }
         _ => {
             info!("disable object storage");
             Box::new(Null::new())
-        },
+        }
     };
 
     let index_addr: SocketAddr = format!("{}:{}", host, index_port).parse().unwrap();
