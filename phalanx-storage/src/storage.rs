@@ -1,7 +1,6 @@
 pub mod minio;
 pub mod null;
 
-// use crate::storage::minio::Minio;
 use async_trait::async_trait;
 
 #[async_trait]
@@ -40,12 +39,3 @@ pub trait Storage: Send + Sync + 'static {
         key: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
-
-// pub fn get_storage(storage_type: &str) -> Box<dyn Storage> {
-//     let storage = match storage_type {
-//         "minio" => Box::new(Minio::new("minioadmin", "minioadmin", "http://localhost:9000")),
-//         _ => panic!("unsupported storage type: {}", storage_type),
-//     };
-//
-//     storage
-// }

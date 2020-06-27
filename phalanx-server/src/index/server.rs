@@ -22,11 +22,11 @@ use phalanx_proto::index::{
     RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply, SearchReq, SetReply, SetReq,
     StatusReply, StatusReq,
 };
+use phalanx_storage::storage::null::STORAGE_TYPE as NULL_STORAGE_TYPE;
+use phalanx_storage::storage::Storage;
 
 use crate::index::config::IndexConfig;
 use crate::index::search_result::{ScoredNamedFieldDocument, SearchResult};
-use crate::storage::null::STORAGE_TYPE as NULL_STORAGE_TYPE;
-use crate::storage::Storage;
 use crate::tokenizer::tokenizer_initializer::TokenizerInitializer;
 
 lazy_static! {
