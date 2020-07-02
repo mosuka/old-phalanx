@@ -19,45 +19,19 @@ impl Storage for Null {
         STORAGE_TYPE
     }
 
-    async fn segments(
+    async fn pull_index(
         &self,
-        _bucket: &str,
-        _key: &str,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        _cluster: &str,
+        _shard: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
 
-    async fn list(
+    async fn push_index(
         &self,
-        _bucket: &str,
-        _key: &str,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-        unimplemented!()
-    }
-
-    async fn push(
-        &self,
-        _path: &str,
-        _bucket: &str,
-        _key: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        unimplemented!()
-    }
-
-    async fn pull(
-        &self,
-        _bucket: &str,
-        _key: &str,
-        _path: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        unimplemented!()
-    }
-
-    async fn delete(
-        &self,
-        _bucket: &str,
-        _key: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        _cluster: &str,
+        _shard: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
 }

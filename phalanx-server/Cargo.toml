@@ -26,8 +26,8 @@ serde_json = "1.0.51"
 tantivy = "0.12.0"
 tokio = { version = "0.2.21", features = [ "full" ] }
 tonic = "0.2.1"
-walkdir = "2.3.1"
 
 phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
+phalanx-discovery = { version = "0.1.0", path = "../phalanx-discovery" }
 phalanx-proto = { version = "0.1.0", path = "../phalanx-proto" }
 phalanx-storage = { version = "0.1.0", path = "../phalanx-storage" }

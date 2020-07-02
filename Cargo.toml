@@ -2,6 +2,7 @@
 members = [
     "phalanx-client",
     "phalanx-common",
+    "phalanx-discovery",
     "phalanx-proto",
     "phalanx-server",
     "phalanx-storage"
