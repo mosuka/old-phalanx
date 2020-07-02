@@ -6,6 +6,8 @@ Phalanx is a cloud-based index writer and searcher written in [Rust](https://www
 Phalanx makes easy for programmers to develop search applications with advanced features and high availability.
 
 ```shell script
+$ etcd --data-dir=${HOME}/tmp/etcd
+$ minio server ${HOME}/tmp/minio
 $ phalanx --host=0.0.0.0 \
           --index-port=5001 \
           --metrics-port=9001 \
@@ -16,8 +18,16 @@ $ phalanx --host=0.0.0.0 \
           --indexer-memory-size=500000000 \
           --unique-id-field=id \
           --cluster=default \
-          --shard=0 \
-          
+          --shard=shard0 \
+          --node=node0 \
+          --discovery-type=etcd \
+          --etcd-endpoints=127.0.0.1:2379 \
+          --etcd-root=/phalanx \
+          --storage-type=minio \
+          --minio-access-key=minioadmin \
+          --minio-secret-key=minioadmin \
+          --minio-endpoint=http://127.0.0.1:9000 \
+          --minio-bucket=phalanx
 ```
 
 Invoking RPCs example:

@@ -1,19 +1,17 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use async_std::task::block_on;
 use log::*;
 use prometheus::{CounterVec, HistogramVec};
 use tantivy::collector::{Count, FacetCollector, MultiCollector, TopDocs};
-use tantivy::directory::{MmapDirectory, RAMDirectory};
+use tantivy::directory::MmapDirectory;
 use tantivy::merge_policy::LogMergePolicy;
 use tantivy::query::{QueryParser, TermQuery};
 use tantivy::schema::{Field, FieldType, IndexRecordOption, Schema};
 use tantivy::{Document, Index, IndexWriter, Term};
 use tonic::{Code, Request, Response, Status};
-use walkdir::WalkDir;
 
 use phalanx_proto::index::index_service_server::IndexService;
 use phalanx_proto::index::{
@@ -91,25 +89,50 @@ impl MyIndexService {
         // validate the schema
         // TODO
 
-        let index = if index_config.index_dir.is_empty() {
-            let dir = RAMDirectory::create();
-            match Index::open_or_create(dir, schema) {
-                Ok(index) => index,
-                Err(e) => {
-                    error!("failed to open or create ram index: error = {:?}", e);
-                    panic!();
-                }
-            }
-        } else {
-            fs::create_dir_all(&index_config.index_dir).unwrap_or_default();
+        // let index = if index_config.index_dir.is_empty() {
+        //     let dir = RAMDirectory::create();
+        //     match Index::open_or_create(dir, schema) {
+        //         Ok(index) => index,
+        //         Err(e) => {
+        //             error!("failed to open or create ram index: error = {:?}", e);
+        //             panic!();
+        //         }
+        //     }
+        // } else {
+        //     fs::create_dir_all(&index_config.index_dir).unwrap_or_default();
+        //
+        //     // pull index from object storage if it exists.
+        //
+        //     let dir = MmapDirectory::open(&index_config.index_dir).unwrap();
+        //     match Index::open_or_create(dir, schema) {
+        //         Ok(index) => index,
+        //         Err(e) => {
+        //             error!("failed to open or create mmap index: error = {:?}", e);
+        //             panic!();
+        //         }
+        //     }
+        // };
 
-            let dir = MmapDirectory::open(&index_config.index_dir).unwrap();
-            match Index::open_or_create(dir, schema) {
-                Ok(index) => index,
+        // create index directory
+        fs::create_dir_all(&index_config.index_dir).unwrap_or_default();
+
+        // pull index from object storage if it exists.
+        if storage.get_type() != NULL_STORAGE_TYPE {
+            let merge_future = storage.pull_index(cluster, shard);
+            match block_on(merge_future) {
+                Ok(_) => (),
                 Err(e) => {
-                    error!("failed to open or create mmap index: error = {:?}", e);
-                    panic!();
+                    error!("failed to pull index from object storage: error = {:?}", e);
                 }
+            };
+        }
+
+        let dir = MmapDirectory::open(&index_config.index_dir).unwrap();
+        let index = match Index::open_or_create(dir, schema) {
+            Ok(index) => index,
+            Err(e) => {
+                error!("failed to open or create mmap index: error = {:?}", e);
+                panic!();
             }
         };
 
@@ -499,6 +522,17 @@ impl IndexService for MyIndexService {
             return Ok(Response::new(reply));
         }
 
+        // let segment_meta = match self.index_writer.lock().unwrap().merge(&segment_ids).await {
+        //     Ok(segment_meta) => segment_meta,
+        //     Err(e) => {
+        //         timer.observe_duration();
+        //
+        //         return Err(Status::new(
+        //             Code::Internal,
+        //             format!("failed to merge index: error = {:?}", e),
+        //         ));
+        //     }
+        // };
         let merge_future = self.index_writer.lock().unwrap().merge(&segment_ids);
         let segment_meta = match block_on(merge_future) {
             Ok(segment_meta) => segment_meta,
@@ -532,74 +566,17 @@ impl IndexService for MyIndexService {
             return Err(Status::new(Code::Unavailable, "storage type is null"));
         }
 
-        // let minio = Minio::new("minioadmin", "minioadmin", "http://127.0.0.1:9000");
-        let bucket = "phalanx";
-        let base_key = String::from(format!("{}/{}", &self.cluster, &self.shard));
-
-        // list files
-        let mut segment_files = Vec::new();
-        for segment in self.index.searchable_segments().unwrap() {
-            for segment_file_path in segment.meta().list_files() {
-                let segment_file = String::from(segment_file_path.to_str().unwrap());
-                segment_files.push(segment_file);
-            }
-        }
-        segment_files.push(String::from(".managed.json"));
-        segment_files.push(String::from("meta.json"));
-
-        // push segment files
-        for segment_file in segment_files.clone() {
-            let file = String::from(
-                Path::new(&self.index_config.index_dir)
-                    .join(&segment_file)
-                    .to_str()
-                    .unwrap(),
-            );
-            let key = String::from(Path::new(&base_key).join(&segment_file).to_str().unwrap());
-
-            match self.storage.push(&file, bucket, &key).await {
-                Ok(_) => (),
-                Err(e) => {
-                    timer.observe_duration();
-
-                    return Err(Status::new(
-                        Code::Internal,
-                        format!("failed to set object: {:?}", e),
-                    ));
-                }
-            };
-        }
-
-        // delete unnecessary files from object storage
-        let keys = match self.storage.list(bucket, &base_key).await {
-            Ok(keys) => keys,
+        match self.storage.push_index(&self.cluster, &self.shard).await {
+            Ok(_) => (),
             Err(e) => {
                 timer.observe_duration();
 
                 return Err(Status::new(
                     Code::Internal,
-                    format!("failed to list keys: {:?}", e),
+                    format!("failed to set object: {:?}", e),
                 ));
             }
         };
-        for k in keys {
-            if !segment_files.contains(&k) {
-                // meta.json -> cluster1/shard1/meta.json
-                let obj_key = String::from(Path::new(&base_key).join(&k).to_str().unwrap());
-
-                match self.storage.delete(bucket, &obj_key).await {
-                    Ok(_) => (),
-                    Err(e) => {
-                        timer.observe_duration();
-
-                        return Err(Status::new(
-                            Code::Internal,
-                            format!("failed to delete object: {:?}", e),
-                        ));
-                    }
-                };
-            }
-        }
 
         let reply = PushReply {
             status: String::from("OK"),
@@ -620,82 +597,17 @@ impl IndexService for MyIndexService {
             return Err(Status::new(Code::Unavailable, "storage type is null"));
         }
 
-        let bucket = "phalanx";
-        let base_key = String::from(format!("{}/{}", &self.cluster, &self.shard));
-
-        // get object key of segment files from object storage
-        let mut keys = match self.storage.segments(bucket, &base_key).await {
-            Ok(keys) => keys,
+        match self.storage.pull_index(&self.cluster, &self.shard).await {
+            Ok(_) => (),
             Err(e) => {
                 timer.observe_duration();
 
                 return Err(Status::new(
                     Code::Internal,
-                    format!("failed to get segment files: error = {:?}", e),
+                    format!("failed to remove unnecessary files: error = {:?}", e),
                 ));
             }
         };
-        // add metadata files
-        keys.push(String::from(".managed.json"));
-        keys.push(String::from("meta.json"));
-
-        for key in keys.clone() {
-            let obj_key = String::from(Path::new(&base_key).join(&key).to_str().unwrap());
-            let file = String::from(
-                Path::new(&self.index_config.index_dir)
-                    .join(&key)
-                    .to_str()
-                    .unwrap(),
-            );
-
-            match self.storage.pull(bucket, &obj_key, &file).await {
-                Ok(_) => (),
-                Err(e) => {
-                    timer.observe_duration();
-
-                    return Err(Status::new(
-                        Code::Internal,
-                        format!("failed to pull index files: error = {:?}", e),
-                    ));
-                }
-            };
-        }
-
-        // remove unnecessary files from local index
-        let mut files = Vec::new();
-        for entry in WalkDir::new(&self.index_config.index_dir)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-        {
-            let file = entry.file_name().to_str().unwrap();
-            // exclude lock files
-            if !file.ends_with(".lock") {
-                files.push(String::from(file));
-            }
-        }
-        for f in files {
-            if !keys.contains(&f) {
-                let file = String::from(
-                    Path::new(&self.index_config.index_dir)
-                        .join(&f)
-                        .to_str()
-                        .unwrap(),
-                );
-                match fs::remove_file(&file) {
-                    Ok(()) => info!("delete: {}", &file),
-                    Err(e) => {
-                        timer.observe_duration();
-
-                        return Err(Status::new(
-                            Code::Internal,
-                            format!("failed to remove unnecessary files: error = {:?}", e),
-                        ));
-                    }
-                };
-            }
-        }
 
         let reply = PullReply {
             status: String::from("OK"),

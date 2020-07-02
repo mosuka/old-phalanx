@@ -7,35 +7,15 @@ use async_trait::async_trait;
 pub trait Storage: Send + Sync + 'static {
     fn get_type(&self) -> &str;
 
-    async fn segments(
+    async fn pull_index(
         &self,
-        bucket: &str,
-        key: &str,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>>;
-
-    async fn list(
-        &self,
-        bucket: &str,
-        key: &str,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>>;
-
-    async fn push(
-        &self,
-        path: &str,
-        bucket: &str,
-        key: &str,
+        cluster: &str,
+        shard: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-    async fn pull(
+    async fn push_index(
         &self,
-        bucket: &str,
-        key: &str,
-        path: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
-    async fn delete(
-        &self,
-        bucket: &str,
-        key: &str,
+        cluster: &str,
+        shard: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }

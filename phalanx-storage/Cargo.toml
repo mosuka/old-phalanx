@@ -11,5 +11,7 @@ serde_json = "1.0.51"
 rusoto_core = "0.44.0"
 rusoto_s3 = "0.44.0"
 log = "0.4.8"
+walkdir = "2.3.1"
+tantivy = "0.12.0"
 
 phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
