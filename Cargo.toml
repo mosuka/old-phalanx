@@ -4,6 +4,6 @@ members = [
     "phalanx-common",
     "phalanx-discovery",
     "phalanx-proto",
-    "phalanx-server",
+    "phalanx-index",
     "phalanx-storage"
 ]

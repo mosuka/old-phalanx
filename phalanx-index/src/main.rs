@@ -12,19 +12,18 @@ use log::*;
 use tonic::transport::Server as TonicServer;
 
 use phalanx_common::log::set_logger;
-use phalanx_common::signal::wait_for_shutdown_signal;
 use phalanx_discovery::discovery::etcd::{Etcd, DISCOVERY_TYPE as ETCD_DISCOVERY_TYPE};
 use phalanx_discovery::discovery::null::{
     Null as NullDiscovery, DISCOVERY_TYPE as NULL_DISCOVERY_TYPE,
 };
 use phalanx_discovery::discovery::{Discovery, NodeStatus, State};
-use phalanx_proto::index::index_service_server::IndexServiceServer;
-use phalanx_server::index::config::{
+use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
 };
-use phalanx_server::index::server::MyIndexService;
-use phalanx_server::metric::server::handle;
+use phalanx_index::server::grpc::MyIndexService;
+use phalanx_index::server::http::handle;
+use phalanx_proto::index::index_service_server::IndexServiceServer;
 use phalanx_storage::storage::minio::Minio;
 use phalanx_storage::storage::minio::STORAGE_TYPE as MINIO_STORAGE_TYPE;
 use phalanx_storage::storage::null::Null as NullStorage;
@@ -54,18 +53,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("INDEX_PORT")
-                .help("Index service port number")
-                .long("index-port")
-                .value_name("INDEX_PORT")
+            Arg::with_name("GRPC_PORT")
+                .help("gRPC port number")
+                .long("grpc-port")
+                .value_name("GRPC_PORT")
                 .default_value("5000")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("METRICS_PORT")
-                .help("Metrics service port number")
-                .long("metrics-port")
-                .value_name("METRICS_PORT")
+            Arg::with_name("HTTP_PORT")
+                .help("HTTP port number")
+                .long("http-port")
+                .value_name("HTTP_PORT")
                 .default_value("9000")
                 .takes_value(true),
         )
@@ -211,13 +210,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let matches = app.get_matches();
 
     let host = matches.value_of("HOST").unwrap();
-    let index_port = matches
-        .value_of("INDEX_PORT")
+    let grpc_port = matches
+        .value_of("GRPC_PORT")
         .unwrap()
         .parse::<u16>()
         .unwrap();
-    let metrics_port = matches
-        .value_of("METRICS_PORT")
+    let http_port = matches
+        .value_of("HTTP_PORT")
         .unwrap()
         .parse::<u16>()
         .unwrap();
@@ -288,18 +287,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     };
 
-    let index_addr: SocketAddr = format!("{}:{}", host, index_port).parse().unwrap();
-    let index_service = MyIndexService::new(index_config, cluster, shard, storage);
+    let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
+    let grpc_service = MyIndexService::new(index_config, cluster, shard, storage);
 
-    let _index_server = TonicServer::builder()
-        .add_service(IndexServiceServer::new(index_service))
-        .serve(index_addr);
-    info!("start index service on {}", index_addr);
+    let grpc_server = TonicServer::builder()
+        .add_service(IndexServiceServer::new(grpc_service))
+        .serve(grpc_addr);
+    info!("start gRPC server on {}", grpc_addr);
 
-    let metrics_addr: SocketAddr = format!("{}:{}", host, metrics_port).parse().unwrap();
-    let metrics_service = make_service_fn(|_| async { Ok::<_, Error>(service_fn(handle)) });
-    let _metrics_server = HyperServer::bind(&metrics_addr).serve(metrics_service);
-    info!("start metric service on {}", metrics_addr);
+    let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
+    let http_service = make_service_fn(|_| async { Ok::<_, Error>(service_fn(handle)) });
+    let http_server = HyperServer::bind(&http_addr).serve(http_service);
+    info!("start HTTP server on {}", http_addr);
 
     let mut discovery: Box<dyn Discovery> = match discovery_type {
         ETCD_DISCOVERY_TYPE => {
@@ -312,30 +311,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     };
 
+    // add node to cluster
     if discovery.get_type() != NULL_DISCOVERY_TYPE {
         let node_status = NodeStatus {
             state: State::Active,
             primary: false,
-            address: format!("{}:{}", host, index_port),
+            address: format!("{}:{}", host, grpc_port),
         };
-        discovery.set_node(cluster, shard, node, node_status).await;
-    }
-
-    wait_for_shutdown_signal().await;
-
-    if discovery.get_type() != NULL_DISCOVERY_TYPE {
-        let mut node_status = match discovery.get_node(cluster, shard, node).await {
-            Ok(node_status) => node_status,
+        match discovery.set_node(cluster, shard, node, node_status).await {
+            Ok(_) => (),
             Err(e) => return Err(e),
         };
-
-        node_status.state = State::Inactive;
-
-        discovery.set_node(cluster, shard, node, node_status).await;
     }
 
-    info!("stop index service on {}", index_addr);
-    info!("stop metric service on {}", metrics_addr);
+    let _join = join(grpc_server, http_server).await;
 
     Ok(())
 }
