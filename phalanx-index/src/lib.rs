@@ -4,5 +4,5 @@ extern crate lazy_static;
 extern crate prometheus;
 
 pub mod index;
-pub mod metric;
+pub mod server;
 pub mod tokenizer;

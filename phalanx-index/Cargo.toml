@@ -1,11 +1,11 @@
 [package]
-name = "phalanx-server"
+name = "phalanx-index"
 version = "0.1.0"
 authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
 edition = "2018"
 
 [[bin]]
-name = "phalanx"
+name = "phalanx-index"
 path = "src/main.rs"
 
 [dependencies]

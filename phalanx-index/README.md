@@ -8,26 +8,26 @@ Phalanx makes easy for programmers to develop search applications with advanced 
 ```shell script
 $ etcd --data-dir=${HOME}/tmp/etcd
 $ minio server ${HOME}/tmp/minio
-$ phalanx --host=0.0.0.0 \
-          --index-port=5001 \
-          --metrics-port=9001 \
-          --index-directory=./data \
-          --schema-file=./examples/schema.json \
-          --tokenizer-file=./examples/tokenizer.json \
-          --indexer-threads=1 \
-          --indexer-memory-size=500000000 \
-          --unique-id-field=id \
-          --cluster=default \
-          --shard=shard0 \
-          --node=node0 \
-          --discovery-type=etcd \
-          --etcd-endpoints=127.0.0.1:2379 \
-          --etcd-root=/phalanx \
-          --storage-type=minio \
-          --minio-access-key=minioadmin \
-          --minio-secret-key=minioadmin \
-          --minio-endpoint=http://127.0.0.1:9000 \
-          --minio-bucket=phalanx
+$ phalanx-index --host=0.0.0.0 \
+                --grpc-port=5001 \
+                --http-port=9001 \
+                --index-directory=${HOME}/tmp/phalanx \
+                --schema-file=./examples/schema.json \
+                --tokenizer-file=./examples/tokenizer.json \
+                --indexer-threads=1 \
+                --indexer-memory-size=500000000 \
+                --unique-id-field=id \
+                --cluster=default \
+                --shard=shard0 \
+                --node=node0 \
+                --discovery-type=etcd \
+                --etcd-endpoints=127.0.0.1:2379 \
+                --etcd-root=/phalanx \
+                --storage-type=minio \
+                --minio-access-key=minioadmin \
+                --minio-secret-key=minioadmin \
+                --minio-endpoint=http://127.0.0.1:9000 \
+                --minio-bucket=phalanx
 ```
 
 Invoking RPCs example:
