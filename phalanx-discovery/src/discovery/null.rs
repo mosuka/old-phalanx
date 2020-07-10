@@ -47,4 +47,8 @@ impl Discovery for Null {
     ) -> Result<NodeStatus, Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
+
+    async fn update_cluster(&mut self, _cluster: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        unimplemented!()
+    }
 }

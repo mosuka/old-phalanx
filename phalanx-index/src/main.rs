@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .setting(AppSettings::DeriveDisplayOrder)
         .version(crate_version!())
         .author(crate_authors!())
-        .about("Phalanx server")
+        .about("Phalanx index")
         .help_message("Prints help information.")
         .version_message("Prints version information.")
         .version_short("v")

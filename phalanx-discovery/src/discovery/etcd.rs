@@ -1,12 +1,15 @@
 use std::convert::TryFrom;
 use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
+use std::time::Duration;
 
 use async_std::task::block_on;
 use async_trait::async_trait;
-use etcd_client::Client;
+use etcd_client::{Client, GetOptions};
+use etcd_client::EventType;
 use log::*;
 use serde::Serialize;
+use tokio::time;
 
 use crate::discovery::{Discovery, NodeStatus, State};
 
@@ -54,10 +57,10 @@ impl Discovery for Etcd {
             cluster, shard, node, node_status
         );
 
-        let key_bytes = format!("{}/{}/{}/{}", &self.root, cluster, shard, node).into_bytes();
-        let value_bytes = serde_json::to_string(&node_status).unwrap().into_bytes();
+        let key = format!("{}/{}/{}/{}", &self.root, cluster, shard, node);
+        let value = serde_json::to_string(&node_status).unwrap();
 
-        let put_response = match self.client.put(key_bytes, value_bytes, None).await {
+        let put_response = match self.client.put(key, value, None).await {
             Ok(put_response) => put_response,
             Err(e) => return Err(Box::try_from(e).unwrap()),
         };
@@ -76,8 +79,8 @@ impl Discovery for Etcd {
             cluster, shard, node
         );
 
-        let key_bytes = format!("{}/{}/{}/{}", &self.root, cluster, shard, node).into_bytes();
-        let delete_response = match self.client.delete(key_bytes, None).await {
+        let key = format!("{}/{}/{}/{}", &self.root, cluster, shard, node);
+        let delete_response = match self.client.delete(key, None).await {
             Ok(delete_response) => delete_response,
             Err(e) => return Err(Box::try_from(e).unwrap()),
         };
@@ -96,8 +99,8 @@ impl Discovery for Etcd {
             cluster, shard, node
         );
 
-        let key_bytes = format!("{}/{}/{}/{}", &self.root, cluster, shard, node).into_bytes();
-        let get_response = match self.client.get(key_bytes, None).await {
+        let key = format!("{}/{}/{}/{}", &self.root, cluster, shard, node);
+        let get_response = match self.client.get(key, None).await {
             Ok(get_response) => get_response,
             Err(e) => return Err(Box::try_from(e).unwrap()),
         };
@@ -117,5 +120,53 @@ impl Discovery for Etcd {
             ))
             .unwrap()),
         }
+    }
+
+    async fn update_cluster(&mut self, cluster: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        info!("update_cluster: cluster={}", cluster);
+
+        let mut interval = time::interval(Duration::from_secs(3));
+        loop {
+            interval.tick().await;
+
+            let key = format!("{}/{}/", &self.root, cluster);
+            let get_response = match self.client.get(key, Some(GetOptions::new().with_prefix())).await {
+                Ok(get_response) => {
+                    get_response
+                }
+                Err(e) => {
+                    error!("{:?}", e);
+                    continue;
+                },
+            };
+
+            for kv in get_response.kvs() {
+                info!("{}:{}", kv.key_str().unwrap(), kv.value_str().unwrap());
+            }
+        }
+
+        // let (mut watcher, mut stream) = self.client.watch(key, None).await.unwrap();
+        //
+        // while let Some(resp) = stream.message().await.unwrap() {
+        //     info!("receive watch response");
+        //
+        //     if resp.canceled() {
+        //         info!("watch canceled");
+        //         break;
+        //     }
+        //
+        //     for event in resp.events() {
+        //         info!("event type: {:?}", event.event_type());
+        //         if let Some(kv) = event.kv() {
+        //             info!("kv: {{{}: {}}}", kv.key_str().unwrap(), kv.value_str().unwrap());
+        //         }
+        //
+        //         if EventType::Delete == event.event_type() {
+        //             watcher.cancel().await?;
+        //         }
+        //     }
+        // }
+
+        Ok(())
     }
 }
