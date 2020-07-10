@@ -3,7 +3,8 @@ members = [
     "phalanx-client",
     "phalanx-common",
     "phalanx-discovery",
-    "phalanx-proto",
     "phalanx-index",
+    "phalanx-overseer",
+    "phalanx-proto",
     "phalanx-storage"
 ]

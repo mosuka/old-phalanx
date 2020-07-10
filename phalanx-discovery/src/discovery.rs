@@ -29,6 +29,11 @@ pub trait Discovery: Send + Sync + 'static {
         shard: &str,
         node: &str,
     ) -> Result<NodeStatus, Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn update_cluster(
+        &mut self,
+        cluster: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
