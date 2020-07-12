@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate clap;
 
+use std::convert::Infallible;
 use std::io::Error;
 use std::net::SocketAddr;
 
@@ -9,6 +10,7 @@ use futures_util::future::join;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server as HyperServer;
 use log::*;
+use tokio::signal;
 use tonic::transport::Server as TonicServer;
 
 use phalanx_common::log::set_logger;
@@ -23,6 +25,7 @@ use phalanx_index::index::config::{
 };
 use phalanx_index::server::grpc::MyIndexService;
 use phalanx_index::server::http::handle;
+use phalanx_proto::index::index_service_client::IndexServiceClient;
 use phalanx_proto::index::index_service_server::IndexServiceServer;
 use phalanx_storage::storage::minio::Minio;
 use phalanx_storage::storage::minio::STORAGE_TYPE as MINIO_STORAGE_TYPE;
@@ -290,14 +293,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
     let grpc_service = MyIndexService::new(index_config, cluster, shard, storage);
 
-    let grpc_server = TonicServer::builder()
-        .add_service(IndexServiceServer::new(grpc_service))
-        .serve(grpc_addr);
+    tokio::spawn(
+        TonicServer::builder()
+            .add_service(IndexServiceServer::new(grpc_service))
+            .serve(grpc_addr),
+    );
     info!("start gRPC server on {}", grpc_addr);
 
+    let grpc_server_url = format!("http://{}:{}", host, grpc_port);
+    let grpc_client = IndexServiceClient::connect(grpc_server_url.clone())
+        .await
+        .unwrap();
+    info!("start gRPC client for {}", &grpc_server_url);
+
     let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
-    let http_service = make_service_fn(|_| async { Ok::<_, Error>(service_fn(handle)) });
-    let http_server = HyperServer::bind(&http_addr).serve(http_service);
+    let http_service = make_service_fn(move |_| {
+        let grpc_client = grpc_client.clone();
+        async move { Ok::<_, Infallible>(service_fn(move |req| handle(grpc_client.clone(), req))) }
+    });
+    tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
     info!("start HTTP server on {}", http_addr);
 
     let mut discovery: Box<dyn Discovery> = match discovery_type {
@@ -324,7 +338,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         };
     }
 
-    let _join = join(grpc_server, http_server).await;
+    signal::ctrl_c().await?;
+    info!("ctrl-c received");
 
     Ok(())
 }
