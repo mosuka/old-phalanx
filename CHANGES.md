@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
+- Add health check endpoint #7 @mosuka
 - Add overseer package #5 @mosuka
 - Rename phalanx-server to phalanx-index #4 @mosuka
 - Add discovery package #3 @mosuka
