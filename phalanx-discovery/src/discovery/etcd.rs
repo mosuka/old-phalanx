@@ -5,8 +5,7 @@ use std::time::Duration;
 
 use async_std::task::block_on;
 use async_trait::async_trait;
-use etcd_client::{Client, GetOptions};
-use etcd_client::EventType;
+use etcd_client::{Client, EventType, GetOptions};
 use log::*;
 use serde::Serialize;
 use tokio::time;
@@ -130,14 +129,16 @@ impl Discovery for Etcd {
             interval.tick().await;
 
             let key = format!("{}/{}/", &self.root, cluster);
-            let get_response = match self.client.get(key, Some(GetOptions::new().with_prefix())).await {
-                Ok(get_response) => {
-                    get_response
-                }
+            let get_response = match self
+                .client
+                .get(key, Some(GetOptions::new().with_prefix()))
+                .await
+            {
+                Ok(get_response) => get_response,
                 Err(e) => {
                     error!("{:?}", e);
                     continue;
-                },
+                }
             };
 
             for kv in get_response.kvs() {

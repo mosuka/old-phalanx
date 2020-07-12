@@ -5,17 +5,17 @@ use std::io::Error;
 use std::net::SocketAddr;
 
 use clap::{App, AppSettings, Arg};
+use futures_util::future::join;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server as HyperServer;
 use log::*;
-use futures_util::future::join;
 
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::Etcd;
-use phalanx_discovery::discovery::Discovery;
 use phalanx_discovery::discovery::null::{
     Null as NullDiscovery, DISCOVERY_TYPE as NULL_DISCOVERY_TYPE,
 };
+use phalanx_discovery::discovery::Discovery;
 use phalanx_manager::server::http::handle;
 
 #[tokio::main]

@@ -1,7 +1,14 @@
 use hyper::{Body, Method, Request, Response, StatusCode};
 use prometheus::{Encoder, TextEncoder};
+use tonic::transport::Channel;
 
-pub async fn handle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+use phalanx_proto::index::index_service_client::IndexServiceClient;
+use phalanx_proto::index::StatusReq;
+
+pub async fn handle(
+    mut grpc_client: IndexServiceClient<Channel>,
+    req: Request<Body>,
+) -> Result<Response<Body>, hyper::Error> {
     let mut response = Response::new(Body::empty());
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
@@ -13,6 +20,38 @@ pub async fn handle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> 
 
             *response.status_mut() = StatusCode::OK;
             *response.body_mut() = Body::from(metrics_text);
+        }
+        (&Method::GET, "/healthz/liveness") => {
+            let r = tonic::Request::new(StatusReq {});
+
+            match grpc_client.status(r).await {
+                Ok(resp) => {
+                    let status = resp.into_inner().status;
+                    *response.status_mut() = StatusCode::OK;
+                    *response.body_mut() = Body::from(status);
+                }
+                Err(e) => {
+                    let msg = format!("{:?}", e);
+                    *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    *response.body_mut() = Body::from(msg);
+                }
+            };
+        }
+        (&Method::GET, "/healthz/readiness") => {
+            let r = tonic::Request::new(StatusReq {});
+
+            match grpc_client.status(r).await {
+                Ok(resp) => {
+                    let status = resp.into_inner().status;
+                    *response.status_mut() = StatusCode::OK;
+                    *response.body_mut() = Body::from(status);
+                }
+                Err(e) => {
+                    let msg = format!("{:?}", e);
+                    *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    *response.body_mut() = Body::from(msg);
+                }
+            };
         }
         _ => {
             *response.status_mut() = StatusCode::NOT_FOUND;
