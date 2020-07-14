@@ -265,14 +265,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let minio_endpoint = matches.value_of("MINIO_ENDPOINT").unwrap();
     let minio_bucket = matches.value_of("MINIO_BUCKET").unwrap();
 
-    let mut index_config = IndexConfig::new();
-    index_config.index_dir = String::from(index_directory);
-    index_config.schema_file = String::from(schema_file);
-    index_config.tokenizer_file = String::from(tokenizer_file);
-    index_config.indexer_threads = indexer_threads;
-    index_config.indexer_memory_size = indexer_memory_size;
-    index_config.unique_key_field = String::from(unique_key_field);
-
     let storage: Box<dyn Storage> = match storage_type {
         MINIO_STORAGE_TYPE => {
             info!("enable MinIO");
@@ -281,7 +273,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 minio_secret_key,
                 minio_endpoint,
                 minio_bucket,
-                index_config.index_dir.as_str(),
+                index_directory,
             ))
         }
         _ => {
@@ -289,6 +281,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Box::new(NullStorage::new())
         }
     };
+
+    let mut discovery: Box<dyn Discovery> = match discovery_type {
+        ETCD_DISCOVERY_TYPE => {
+            info!("enable etcd");
+            Box::new(Etcd::new(etcd_endpoints, etcd_root))
+        }
+        _ => {
+            info!("disable node discovery");
+            Box::new(NullDiscovery::new())
+        }
+    };
+
+    let mut index_config = IndexConfig::new();
+    index_config.index_dir = String::from(index_directory);
+    index_config.schema_file = String::from(schema_file);
+    index_config.tokenizer_file = String::from(tokenizer_file);
+    index_config.indexer_threads = indexer_threads;
+    index_config.indexer_memory_size = indexer_memory_size;
+    index_config.unique_key_field = String::from(unique_key_field);
 
     let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
     let grpc_service = MyIndexService::new(index_config, cluster, shard, storage);
@@ -313,17 +324,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
     tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
     info!("start HTTP server on {}", http_addr);
-
-    let mut discovery: Box<dyn Discovery> = match discovery_type {
-        ETCD_DISCOVERY_TYPE => {
-            info!("enable etcd");
-            Box::new(Etcd::new(etcd_endpoints, etcd_root))
-        }
-        _ => {
-            info!("disable node discovery");
-            Box::new(NullDiscovery::new())
-        }
-    };
 
     // add node to cluster
     if discovery.get_type() != NULL_DISCOVERY_TYPE {

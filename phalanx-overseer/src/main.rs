@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-use std::io::Error;
+use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 
 use clap::{App, AppSettings, Arg};
@@ -9,14 +9,16 @@ use futures_util::future::join;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server as HyperServer;
 use log::*;
+use tokio::signal;
 
 use phalanx_common::log::set_logger;
-use phalanx_discovery::discovery::etcd::Etcd;
+use phalanx_discovery::discovery::etcd::{Etcd, DISCOVERY_TYPE as ETCD_DISCOVERY_TYPE};
 use phalanx_discovery::discovery::null::{
     Null as NullDiscovery, DISCOVERY_TYPE as NULL_DISCOVERY_TYPE,
 };
 use phalanx_discovery::discovery::Discovery;
 use phalanx_manager::server::http::handle;
+use std::convert::TryFrom;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -93,11 +95,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .collect();
     let etcd_root = matches.value_of("ETCD_ROOT").unwrap();
 
-    let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
-    let http_service = make_service_fn(|_| async { Ok::<_, Error>(service_fn(handle)) });
-    let http_server = HyperServer::bind(&http_addr).serve(http_service);
-    info!("start HTTP server on {}", http_addr);
-
     let mut discovery: Box<dyn Discovery> = match discovery_type {
         ETCD_DISCOVERY_TYPE => {
             info!("enable etcd");
@@ -108,11 +105,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Box::new(NullDiscovery::new())
         }
     };
+    if discovery.get_type() == NULL_DISCOVERY_TYPE {
+        return Err(Box::try_from(Error::new(ErrorKind::Other, format!("unsupported discovery type: {}", discovery_type))).unwrap());
+    }
 
-    let _join = join(discovery.update_cluster("default"), http_server).await;
-    // discovery.update_cluster("default").await;
-    //
-    // http_server.await;
+    // match discovery_type {
+    //     ETCD_DISCOVERY_TYPE => {
+    //         info!("enable etcd");
+    //         tokio::spawn(Etcd::new(etcd_endpoints, etcd_root).update_cluster("default"));
+    //     }
+    //     _ => {
+    //         return Err(Box::try_from(Error::new(ErrorKind::Other, format!("unsupported discovery type: {}", discovery_type))).unwrap());
+    //     }
+    // };
+
+    let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
+    let http_service = make_service_fn(|_| async { Ok::<_, Error>(service_fn(handle)) });
+    tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
+    info!("start HTTP server on {}", http_addr);
+
+    // add node to cluster
+    if discovery.get_type() != NULL_DISCOVERY_TYPE {
+        discovery.update_cluster("default").await;
+    }
+
+    // signal::ctrl_c().await?;
+    // info!("ctrl-c received");
 
     Ok(())
 }
