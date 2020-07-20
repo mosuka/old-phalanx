@@ -1,142 +1,191 @@
 version: '3'
 
 services:
-  etcd1:
-    container_name: etcd1
+  etcd:
+    container_name: etcd
     image: quay.io/coreos/etcd:v3.4.7
     entrypoint: /usr/local/bin/etcd
     command:
-      - '--name=etcd1'
-      - '--initial-advertise-peer-urls=http://etcd1:2380'
+      - '--name=etcd'
+      - '--initial-advertise-peer-urls=http://etcd:2380'
       - '--listen-peer-urls=http://0.0.0.0:2380'
       - '--listen-client-urls=http://0.0.0.0:2379'
-      - '--advertise-client-urls=http://etcd1:2379'
+      - '--advertise-client-urls=http://etcd:2379'
       - '--initial-cluster-token=mys3cr3ttok3n'
       - '--heartbeat-interval=250'
       - '--election-timeout=1250'
-      - '--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380'
+      - '--initial-cluster=etcd=http://etcd:2380'
       - '--initial-cluster-state=new'
     ports:
-      - "2381:2379"
+      - "2379:2379"
     volumes:
-      - etcd1-data:/etcd_data
-  etcd2:
-    container_name: etcd2
-    image: quay.io/coreos/etcd:v3.4.7
-    entrypoint: /usr/local/bin/etcd
-    command:
-      - '--name=etcd2'
-      - '--initial-advertise-peer-urls=http://etcd2:2380'
-      - '--listen-peer-urls=http://0.0.0.0:2380'
-      - '--listen-client-urls=http://0.0.0.0:2379'
-      - '--advertise-client-urls=http://etcd2:2379'
-      - '--initial-cluster-token=mys3cr3ttok3n'
-      - '--heartbeat-interval=250'
-      - '--election-timeout=1250'
-      - '--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380'
-      - '--initial-cluster-state=new'
-    ports:
-      - "2382:2379"
-    volumes:
-      - etcd2-data:/etcd_data
-  etcd3:
-    container_name: etcd3
-    image: quay.io/coreos/etcd:v3.4.7
-    entrypoint: /usr/local/bin/etcd
-    command:
-      - '--name=etcd3'
-      - '--initial-advertise-peer-urls=http://etcd3:2380'
-      - '--listen-peer-urls=http://0.0.0.0:2380'
-      - '--listen-client-urls=http://0.0.0.0:2379'
-      - '--advertise-client-urls=http://etcd3:2379'
-      - '--initial-cluster-token=mys3cr3ttok3n'
-      - '--heartbeat-interval=250'
-      - '--election-timeout=1250'
-      - '--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380'
-      - '--initial-cluster-state=new'
-    ports:
-      - "2383:2379"
-    volumes:
-      - etcd3-data:/etcd_data
+      - etcd-data:/etcd_data
+#  etcd1:
+#    container_name: etcd1
+#    image: quay.io/coreos/etcd:v3.4.7
+#    entrypoint: /usr/local/bin/etcd
+#    command:
+#      - '--name=etcd1'
+#      - '--initial-advertise-peer-urls=http://etcd1:2380'
+#      - '--listen-peer-urls=http://0.0.0.0:2380'
+#      - '--listen-client-urls=http://0.0.0.0:2379'
+#      - '--advertise-client-urls=http://etcd1:2379'
+#      - '--initial-cluster-token=mys3cr3ttok3n'
+#      - '--heartbeat-interval=250'
+#      - '--election-timeout=1250'
+#      - '--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380'
+#      - '--initial-cluster-state=new'
+#    ports:
+#      - "2381:2379"
+#    volumes:
+#      - etcd1-data:/etcd_data
+#  etcd2:
+#    container_name: etcd2
+#    image: quay.io/coreos/etcd:v3.4.7
+#    entrypoint: /usr/local/bin/etcd
+#    command:
+#      - '--name=etcd2'
+#      - '--initial-advertise-peer-urls=http://etcd2:2380'
+#      - '--listen-peer-urls=http://0.0.0.0:2380'
+#      - '--listen-client-urls=http://0.0.0.0:2379'
+#      - '--advertise-client-urls=http://etcd2:2379'
+#      - '--initial-cluster-token=mys3cr3ttok3n'
+#      - '--heartbeat-interval=250'
+#      - '--election-timeout=1250'
+#      - '--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380'
+#      - '--initial-cluster-state=new'
+#    ports:
+#      - "2382:2379"
+#    volumes:
+#      - etcd2-data:/etcd_data
+#  etcd3:
+#    container_name: etcd3
+#    image: quay.io/coreos/etcd:v3.4.7
+#    entrypoint: /usr/local/bin/etcd
+#    command:
+#      - '--name=etcd3'
+#      - '--initial-advertise-peer-urls=http://etcd3:2380'
+#      - '--listen-peer-urls=http://0.0.0.0:2380'
+#      - '--listen-client-urls=http://0.0.0.0:2379'
+#      - '--advertise-client-urls=http://etcd3:2379'
+#      - '--initial-cluster-token=mys3cr3ttok3n'
+#      - '--heartbeat-interval=250'
+#      - '--election-timeout=1250'
+#      - '--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380'
+#      - '--initial-cluster-state=new'
+#    ports:
+#      - "2383:2379"
+#    volumes:
+#      - etcd3-data:/etcd_data
 
-  minio1:
+  etcdkeeper:
+    container_name: etcdkeeper
+    image: evildecay/etcdkeeper:v0.7.6
+    environment:
+      HOST: 0.0.0.0
+    ports:
+      - "8080:8080"
+    depends_on:
+      - etcd
+#      - etcd1
+#      - etcd2
+#      - etcd3
+
+  minio:
+    container_name: minio
     image: minio/minio:RELEASE.2020-07-02T00-15-09Z
     volumes:
-      - minio1-data1:/data1
-      - minio1-data2:/data2
+      - minio-data1:/data1
+      - minio-data2:/data2
     ports:
-      - "9001:9000"
+      - "9000:9000"
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
-    command: server http://minio{1...4}/data{1...2}
+    command: server /tmp/minio
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
-
-  minio2:
-    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
-    volumes:
-      - minio2-data1:/data1
-      - minio2-data2:/data2
-    ports:
-      - "9002:9000"
-    environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-    command: server http://minio{1...4}/data{1...2}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-
-  minio3:
-    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
-    volumes:
-      - minio3-data1:/data1
-      - minio3-data2:/data2
-    ports:
-      - "9003:9000"
-    environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-    command: server http://minio{1...4}/data{1...2}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-
-  minio4:
-    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
-    volumes:
-      - minio4-data1:/data1
-      - minio4-data2:/data2
-    ports:
-      - "9004:9000"
-    environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-    command: server http://minio{1...4}/data{1...2}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+#  minio1:
+#    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
+#    volumes:
+#      - minio1-data1:/data1
+#      - minio1-data2:/data2
+#    ports:
+#      - "9001:9000"
+#    environment:
+#      MINIO_ACCESS_KEY: minioadmin
+#      MINIO_SECRET_KEY: minioadmin
+#    command: server http://minio{1...4}/data{1...2}
+#    healthcheck:
+#      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+#      interval: 30s
+#      timeout: 20s
+#      retries: 3
+#  minio2:
+#    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
+#    volumes:
+#      - minio2-data1:/data1
+#      - minio2-data2:/data2
+#    ports:
+#      - "9002:9000"
+#    environment:
+#      MINIO_ACCESS_KEY: minioadmin
+#      MINIO_SECRET_KEY: minioadmin
+#    command: server http://minio{1...4}/data{1...2}
+#    healthcheck:
+#      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+#      interval: 30s
+#      timeout: 20s
+#      retries: 3
+#  minio3:
+#    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
+#    volumes:
+#      - minio3-data1:/data1
+#      - minio3-data2:/data2
+#    ports:
+#      - "9003:9000"
+#    environment:
+#      MINIO_ACCESS_KEY: minioadmin
+#      MINIO_SECRET_KEY: minioadmin
+#    command: server http://minio{1...4}/data{1...2}
+#    healthcheck:
+#      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+#      interval: 30s
+#      timeout: 20s
+#      retries: 3
+#  minio4:
+#    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
+#    volumes:
+#      - minio4-data1:/data1
+#      - minio4-data2:/data2
+#    ports:
+#      - "9004:9000"
+#    environment:
+#      MINIO_ACCESS_KEY: minioadmin
+#      MINIO_SECRET_KEY: minioadmin
+#    command: server http://minio{1...4}/data{1...2}
+#    healthcheck:
+#      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+#      interval: 30s
+#      timeout: 20s
+#      retries: 3
 
 volumes:
-  etcd1-data:
-  etcd2-data:
-  etcd3-data:
+  etcd-data:
+#  etcd1-data:
+#  etcd2-data:
+#  etcd3-data:
 
-  minio1-data1:
-  minio1-data2:
-  minio2-data1:
-  minio2-data2:
-  minio3-data1:
-  minio3-data2:
-  minio4-data1:
-  minio4-data2:
+  minio-data1:
+  minio-data2:
+#  minio1-data1:
+#  minio1-data2:
+#  minio2-data1:
+#  minio2-data2:
+#  minio3-data1:
+#  minio3-data2:
+#  minio4-data1:
+#  minio4-data2:
