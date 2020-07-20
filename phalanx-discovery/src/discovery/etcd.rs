@@ -1,16 +1,12 @@
-use std::convert::TryFrom;
 use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
-use std::time::Duration;
 
 use async_std::task::block_on;
 use async_trait::async_trait;
-use etcd_client::{Client, EventType, GetOptions};
+use etcd_client::Client;
 use log::*;
-use serde::Serialize;
-use tokio::time;
 
-use crate::discovery::{Discovery, NodeStatus, State};
+use crate::discovery::{Discovery, NodeStatus};
 
 pub const DISCOVERY_TYPE: &str = "etcd";
 
@@ -46,22 +42,22 @@ impl Discovery for Etcd {
 
     async fn set_node(
         &mut self,
-        cluster: &str,
-        shard: &str,
-        node: &str,
+        index_name: &str,
+        shard_name: &str,
+        node_name: &str,
         node_status: NodeStatus,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         info!(
-            "set_node: cluster={}, shard={}, node={}, node_status={:?}",
-            cluster, shard, node, node_status
+            "set_node: index_name={}, shard_name={}, node_name={}, node_status={:?}",
+            index_name, shard_name, node_name, node_status
         );
 
-        let key = format!("{}/{}/{}/{}", &self.root, cluster, shard, node);
+        let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
         let value = serde_json::to_string(&node_status).unwrap();
 
-        let put_response = match self.client.put(key, value, None).await {
+        let _put_response = match self.client.put(key, value, None).await {
             Ok(put_response) => put_response,
-            Err(e) => return Err(Box::try_from(e).unwrap()),
+            Err(e) => return Err(Box::new(e)),
         };
 
         Ok(())
@@ -69,19 +65,19 @@ impl Discovery for Etcd {
 
     async fn delete_node(
         &mut self,
-        cluster: &str,
-        shard: &str,
-        node: &str,
+        index_name: &str,
+        shard_name: &str,
+        node_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         info!(
-            "delete_node: cluster={}, shard={}, node={}",
-            cluster, shard, node
+            "delete_node: index_name={}, shard_name={}, node_name={}",
+            index_name, shard_name, node_name
         );
 
-        let key = format!("{}/{}/{}/{}", &self.root, cluster, shard, node);
-        let delete_response = match self.client.delete(key, None).await {
+        let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
+        let _delete_response = match self.client.delete(key, None).await {
             Ok(delete_response) => delete_response,
-            Err(e) => return Err(Box::try_from(e).unwrap()),
+            Err(e) => return Err(Box::new(e)),
         };
 
         Ok(())
@@ -89,19 +85,19 @@ impl Discovery for Etcd {
 
     async fn get_node(
         &mut self,
-        cluster: &str,
-        shard: &str,
-        node: &str,
+        index_name: &str,
+        shard_name: &str,
+        node_name: &str,
     ) -> Result<NodeStatus, Box<dyn Error + Send + Sync>> {
         info!(
-            "get_node: cluster={}, shard={}, node={}",
-            cluster, shard, node
+            "get_node: index_name={}, shard_name={}, node_name={}",
+            index_name, shard_name, node_name
         );
 
-        let key = format!("{}/{}/{}/{}", &self.root, cluster, shard, node);
+        let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
         let get_response = match self.client.get(key, None).await {
             Ok(get_response) => get_response,
-            Err(e) => return Err(Box::try_from(e).unwrap()),
+            Err(e) => return Err(Box::new(e)),
         };
 
         match get_response.kvs().first() {
@@ -110,41 +106,43 @@ impl Discovery for Etcd {
                     serde_json::from_str(kv.value_str().unwrap()).unwrap();
                 Ok(node_status)
             }
-            _ => Err(Box::try_from(IOError::new(
+            None => Err(Box::new(IOError::new(
                 ErrorKind::NotFound,
                 format!(
-                    "key does not found: {}",
-                    format!("/{}/{}/{}/{}", "phalanx", cluster, shard, node)
+                    "key does not fount: {}",
+                    format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name)
                 ),
-            ))
-            .unwrap()),
+            ))),
         }
     }
 
-    async fn update_cluster(&mut self, cluster: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        info!("update_cluster: cluster={}", cluster);
+    async fn get_nodes(
+        &mut self,
+        index_name: &str,
+    ) -> Result<Vec<NodeStatus>, Box<dyn Error + Send + Sync>> {
+        info!("get_nodes: cluster={}", index_name);
 
-        let mut interval = time::interval(Duration::from_secs(3));
-        loop {
-            interval.tick().await;
-
-            let key = format!("{}/{}/", &self.root, cluster);
-            let get_response = match self
-                .client
-                .get(key, Some(GetOptions::new().with_prefix()))
-                .await
-            {
-                Ok(get_response) => get_response,
-                Err(e) => {
-                    error!("{:?}", e);
-                    continue;
-                }
-            };
-
-            for kv in get_response.kvs() {
-                info!("{}:{}", kv.key_str().unwrap(), kv.value_str().unwrap());
-            }
-        }
+        // let mut interval = time::interval(Duration::from_secs(3));
+        // loop {
+        //     interval.tick().await;
+        //
+        //     let key = format!("{}/{}/", &self.root, cluster);
+        //     let get_response = match self
+        //         .client
+        //         .get(key, Some(GetOptions::new().with_prefix()))
+        //         .await
+        //     {
+        //         Ok(get_response) => get_response,
+        //         Err(e) => {
+        //             error!("{:?}", e);
+        //             continue;
+        //         }
+        //     };
+        //
+        //     for kv in get_response.kvs() {
+        //         info!("{}:{}", kv.key_str().unwrap(), kv.value_str().unwrap());
+        //     }
+        // }
 
         // let (mut watcher, mut stream) = self.client.watch(key, None).await.unwrap();
         //
@@ -168,6 +166,8 @@ impl Discovery for Etcd {
         //     }
         // }
 
-        Ok(())
+        let r = vec![];
+
+        Ok(r)
     }
 }

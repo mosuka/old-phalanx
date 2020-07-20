@@ -2,11 +2,9 @@
 extern crate clap;
 
 use std::convert::Infallible;
-use std::io::Error;
 use std::net::SocketAddr;
 
 use clap::{App, AppSettings, Arg};
-use futures_util::future::join;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server as HyperServer;
 use log::*;
@@ -68,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .help("HTTP port number")
                 .long("http-port")
                 .value_name("HTTP_PORT")
-                .default_value("9000")
+                .default_value("8000")
                 .takes_value(true),
         )
         .arg(
@@ -120,26 +118,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("CLUSTER")
-                .help("Cluster name.")
-                .long("cluster")
-                .value_name("CLUSTER")
-                .default_value("default")
+            Arg::with_name("INDEX_NAME")
+                .help("Index name.")
+                .long("index-name")
+                .value_name("INDEX_NAME")
+                .default_value("index0")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("SHARD")
+            Arg::with_name("SHARD_NAME")
                 .help("Shard name.")
-                .long("shard")
-                .value_name("SHARD")
-                .default_value("0")
+                .long("shard-name")
+                .value_name("SHARD_NAME")
+                .default_value("shard0")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("NODE")
+            Arg::with_name("NODE_NAME")
                 .help("Node name.")
-                .long("node")
-                .value_name("NODE")
+                .long("node-name")
+                .value_name("NODE_NAME")
                 .default_value("node0")
                 .takes_value(true),
         )
@@ -239,9 +237,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .unwrap();
     let unique_key_field = matches.value_of("UNIQUE_ID_FIELD").unwrap();
 
-    let cluster = matches.value_of("CLUSTER").unwrap();
-    let shard = matches.value_of("SHARD").unwrap();
-    let node = matches.value_of("NODE").unwrap();
+    let index_name = matches.value_of("INDEX_NAME").unwrap();
+    let shard_name = matches.value_of("SHARD_NAME").unwrap();
+    let node_name = matches.value_of("NODE_NAME").unwrap();
 
     let discovery_type = match matches.value_of("DISCOVERY_TYPE") {
         Some(discovery_type) => discovery_type,
@@ -302,7 +300,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     index_config.unique_key_field = String::from(unique_key_field);
 
     let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
-    let grpc_service = MyIndexService::new(index_config, cluster, shard, storage);
+    let grpc_service = MyIndexService::new(index_config, index_name, shard_name, storage);
 
     tokio::spawn(
         TonicServer::builder()
@@ -332,7 +330,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             primary: false,
             address: format!("{}:{}", host, grpc_port),
         };
-        match discovery.set_node(cluster, shard, node, node_status).await {
+        match discovery
+            .set_node(index_name, shard_name, node_name, node_status)
+            .await
+        {
             Ok(_) => (),
             Err(e) => return Err(e),
         };

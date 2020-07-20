@@ -1,11 +1,10 @@
 #[macro_use]
 extern crate clap;
 
-use std::io::{Error, ErrorKind};
+use std::io::{Error as IOError, ErrorKind};
 use std::net::SocketAddr;
 
 use clap::{App, AppSettings, Arg};
-use futures_util::future::join;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server as HyperServer;
 use log::*;
@@ -17,6 +16,7 @@ use phalanx_discovery::discovery::null::{
     Null as NullDiscovery, DISCOVERY_TYPE as NULL_DISCOVERY_TYPE,
 };
 use phalanx_discovery::discovery::Discovery;
+use phalanx_manager::overseer::{Overseer, Worker};
 use phalanx_manager::server::http::handle;
 use std::convert::TryFrom;
 
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .help("HTTP port number")
                 .long("http-port")
                 .value_name("HTTP_PORT")
-                .default_value("9000")
+                .default_value("8100")
                 .takes_value(true),
         )
         .arg(
@@ -75,6 +75,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .value_name("ETCD_ROOT")
                 .default_value("/phalanx")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("WATCH_INTERVAL")
+                .help("Watch interval (in milliseconds)")
+                .long("watch-interval")
+                .value_name("WATCH_INTERVAL")
+                .default_value("500")
+                .takes_value(true),
         );
 
     let matches = app.get_matches();
@@ -95,7 +103,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .collect();
     let etcd_root = matches.value_of("ETCD_ROOT").unwrap();
 
-    let mut discovery: Box<dyn Discovery> = match discovery_type {
+    let watch_interval = matches
+        .value_of("WATCH_INTERVAL")
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+
+    let discovery: Box<dyn Discovery> = match discovery_type {
         ETCD_DISCOVERY_TYPE => {
             info!("enable etcd");
             Box::new(Etcd::new(etcd_endpoints, etcd_root))
@@ -106,31 +120,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     };
     if discovery.get_type() == NULL_DISCOVERY_TYPE {
-        return Err(Box::try_from(Error::new(ErrorKind::Other, format!("unsupported discovery type: {}", discovery_type))).unwrap());
+        return Err(Box::try_from(IOError::new(
+            ErrorKind::Other,
+            format!("unsupported discovery type: {}", discovery_type),
+        ))
+        .unwrap());
     }
 
-    // match discovery_type {
-    //     ETCD_DISCOVERY_TYPE => {
-    //         info!("enable etcd");
-    //         tokio::spawn(Etcd::new(etcd_endpoints, etcd_root).update_cluster("default"));
-    //     }
-    //     _ => {
-    //         return Err(Box::try_from(Error::new(ErrorKind::Other, format!("unsupported discovery type: {}", discovery_type))).unwrap());
-    //     }
-    // };
-
     let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
-    let http_service = make_service_fn(|_| async { Ok::<_, Error>(service_fn(handle)) });
+    let http_service = make_service_fn(|_| async { Ok::<_, IOError>(service_fn(handle)) });
     tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
     info!("start HTTP server on {}", http_addr);
 
-    // add node to cluster
-    if discovery.get_type() != NULL_DISCOVERY_TYPE {
-        discovery.update_cluster("default").await;
-    }
+    let mut overseer = Overseer::new(discovery, watch_interval);
+    overseer.run();
 
-    // signal::ctrl_c().await?;
-    // info!("ctrl-c received");
+    signal::ctrl_c().await?;
+    info!("ctrl-c received");
+
+    overseer.stop().expect("stopping overseer failed");
 
     Ok(())
 }

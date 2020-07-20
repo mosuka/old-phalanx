@@ -30,10 +30,10 @@ pub trait Discovery: Send + Sync + 'static {
         node: &str,
     ) -> Result<NodeStatus, Box<dyn std::error::Error + Send + Sync>>;
 
-    async fn update_cluster(
+    async fn get_nodes(
         &mut self,
         cluster: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<Vec<NodeStatus>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
