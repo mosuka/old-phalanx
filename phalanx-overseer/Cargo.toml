@@ -9,8 +9,8 @@ name = "phalanx-overseer"
 path = "src/main.rs"
 
 [dependencies]
-async-std = "1.6.1"
 clap = "2.33.0"
+crossbeam-channel = "0.4.2"
 futures-util = "0.3.5"
 hyper = "0.13.5"
 log = "0.4.8"

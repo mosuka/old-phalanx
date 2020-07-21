@@ -3,7 +3,7 @@ use std::error::Error;
 
 use async_trait::async_trait;
 
-use crate::discovery::{Discovery, NodeStatus};
+use crate::discovery::{Discovery, NodeKey, NodeStatus};
 
 pub const DISCOVERY_TYPE: &str = "null";
 
@@ -23,9 +23,7 @@ impl Discovery for Null {
 
     async fn set_node(
         &mut self,
-        _cluster: &str,
-        _shard: &str,
-        _node: &str,
+        _node_key: NodeKey,
         _node_status: NodeStatus,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         unimplemented!()
@@ -33,25 +31,21 @@ impl Discovery for Null {
 
     async fn delete_node(
         &mut self,
-        _cluster: &str,
-        _shard: &str,
-        _node: &str,
+        _node_key: NodeKey,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
 
     async fn get_node(
         &mut self,
-        _cluster: &str,
-        _shard: &str,
-        _node: &str,
+        _node_key: NodeKey,
     ) -> Result<NodeStatus, Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
 
     async fn get_nodes(
         &mut self,
-    ) -> Result<HashMap<String, NodeStatus>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<HashMap<NodeKey, NodeStatus>, Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
 }

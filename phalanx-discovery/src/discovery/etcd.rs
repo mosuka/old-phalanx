@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use etcd_client::{Client, GetOptions};
 use log::*;
 
-use crate::discovery::{Discovery, NodeStatus};
+use crate::discovery::{Discovery, NodeKey, NodeStatus};
 
 pub const DISCOVERY_TYPE: &str = "etcd";
 
@@ -43,60 +43,50 @@ impl Discovery for Etcd {
 
     async fn set_node(
         &mut self,
-        index_name: &str,
-        shard_name: &str,
-        node_name: &str,
+        node_key: NodeKey,
         node_status: NodeStatus,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!(
-            "set_node: index_name={}, shard_name={}, node_name={}, node_status={:?}",
-            index_name, shard_name, node_name, node_status
+            "set_node: node_key={:?}, node_status={:?}",
+            node_key, node_status
         );
 
-        let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
+        let key = format!(
+            "{}/{}/{}/{}",
+            &self.root, &node_key.index_name, &node_key.shard_name, &node_key.node_name
+        );
         let value = serde_json::to_string(&node_status).unwrap();
 
-        let _put_response = match self.client.put(key, value, None).await {
-            Ok(put_response) => put_response,
-            Err(e) => return Err(Box::new(e)),
-        };
-
-        Ok(())
+        match self.client.put(key, value, None).await {
+            Ok(_put_response) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 
-    async fn delete_node(
-        &mut self,
-        index_name: &str,
-        shard_name: &str,
-        node_name: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        debug!(
-            "delete_node: index_name={}, shard_name={}, node_name={}",
-            index_name, shard_name, node_name
+    async fn delete_node(&mut self, node_key: NodeKey) -> Result<(), Box<dyn Error + Send + Sync>> {
+        debug!("delete_node: node_key={:?}", node_key);
+
+        let key = format!(
+            "{}/{}/{}/{}",
+            &self.root, &node_key.index_name, &node_key.shard_name, &node_key.node_name
         );
-
-        let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
-        let _delete_response = match self.client.delete(key, None).await {
-            Ok(delete_response) => delete_response,
-            Err(e) => return Err(Box::new(e)),
-        };
-
-        Ok(())
+        match self.client.delete(key, None).await {
+            Ok(_delete_response) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 
     async fn get_node(
         &mut self,
-        index_name: &str,
-        shard_name: &str,
-        node_name: &str,
+        node_key: NodeKey,
     ) -> Result<NodeStatus, Box<dyn Error + Send + Sync>> {
-        debug!(
-            "get_node: index_name={}, shard_name={}, node_name={}",
-            index_name, shard_name, node_name
-        );
+        debug!("get_node: node_key={:?}", node_key);
 
-        let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
-        let get_response = match self.client.get(key, None).await {
+        let key = format!(
+            "{}/{}/{}/{}",
+            &self.root, &node_key.index_name, &node_key.shard_name, &node_key.node_name
+        );
+        let get_response = match self.client.get(key.clone(), None).await {
             Ok(get_response) => get_response,
             Err(e) => return Err(Box::new(e)),
         };
@@ -109,20 +99,17 @@ impl Discovery for Etcd {
             }
             None => Err(Box::new(IOError::new(
                 ErrorKind::NotFound,
-                format!(
-                    "key does not fount: {}",
-                    format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name)
-                ),
+                format!("key does not fount: {}", &key),
             ))),
         }
     }
 
     async fn get_nodes(
         &mut self,
-    ) -> Result<HashMap<String, NodeStatus>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<HashMap<NodeKey, NodeStatus>, Box<dyn Error + Send + Sync>> {
         debug!("get_nodes");
 
-        let mut nodes: HashMap<String, NodeStatus> = HashMap::new();
+        let mut nodes: HashMap<NodeKey, NodeStatus> = HashMap::new();
 
         let key = format!("{}/", &self.root);
         match self
@@ -132,12 +119,23 @@ impl Discovery for Etcd {
         {
             Ok(get_response) => {
                 for kv in get_response.kvs() {
-                    let k = kv.key_str().unwrap().to_string();
-                    let v: NodeStatus = serde_json::from_str(kv.value_str().unwrap()).unwrap();
-                    nodes.insert(k, v);
+                    // get key excludes root dir
+                    // e.g. /phalanx/index0/shard0/node0 to index0/shard0/node0
+                    let key_str = &kv.key_str().unwrap()[self.root.len() + 1..];
+
+                    let keys: Vec<&str> = key_str.split('/').collect();
+
+                    let node_key = NodeKey {
+                        index_name: keys.get(0).unwrap().to_string(),
+                        shard_name: keys.get(1).unwrap().to_string(),
+                        node_name: keys.get(2).unwrap().to_string(),
+                    };
+                    let node_status: NodeStatus =
+                        serde_json::from_str(kv.value_str().unwrap()).unwrap();
+                    nodes.insert(node_key, node_status);
                 }
             }
-            Err(e) => error!("{:?}", e),
+            Err(e) => return Err(Box::new(e)),
         };
 
         Ok(nodes)

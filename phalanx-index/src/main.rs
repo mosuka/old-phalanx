@@ -16,7 +16,7 @@ use phalanx_discovery::discovery::etcd::{Etcd, DISCOVERY_TYPE as ETCD_DISCOVERY_
 use phalanx_discovery::discovery::null::{
     Null as NullDiscovery, DISCOVERY_TYPE as NULL_DISCOVERY_TYPE,
 };
-use phalanx_discovery::discovery::{Discovery, NodeStatus, State};
+use phalanx_discovery::discovery::{Discovery, NodeKey, NodeStatus, State};
 use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
@@ -325,15 +325,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // add node to cluster
     if discovery.get_type() != NULL_DISCOVERY_TYPE {
+        let node_key = NodeKey {
+            index_name: index_name.to_string(),
+            shard_name: shard_name.to_string(),
+            node_name: node_name.to_string(),
+        };
         let node_status = NodeStatus {
             state: State::Active,
             primary: false,
             address: format!("{}:{}", host, grpc_port),
         };
-        match discovery
-            .set_node(index_name, shard_name, node_name, node_status)
-            .await
-        {
+        match discovery.set_node(node_key, node_status).await {
             Ok(_) => (),
             Err(e) => return Err(e),
         };
