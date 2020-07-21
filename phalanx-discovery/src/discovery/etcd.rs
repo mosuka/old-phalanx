@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
 
 use async_std::task::block_on;
 use async_trait::async_trait;
-use etcd_client::Client;
+use etcd_client::{Client, GetOptions};
 use log::*;
 
 use crate::discovery::{Discovery, NodeStatus};
@@ -47,7 +48,7 @@ impl Discovery for Etcd {
         node_name: &str,
         node_status: NodeStatus,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        info!(
+        debug!(
             "set_node: index_name={}, shard_name={}, node_name={}, node_status={:?}",
             index_name, shard_name, node_name, node_status
         );
@@ -69,7 +70,7 @@ impl Discovery for Etcd {
         shard_name: &str,
         node_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        info!(
+        debug!(
             "delete_node: index_name={}, shard_name={}, node_name={}",
             index_name, shard_name, node_name
         );
@@ -89,7 +90,7 @@ impl Discovery for Etcd {
         shard_name: &str,
         node_name: &str,
     ) -> Result<NodeStatus, Box<dyn Error + Send + Sync>> {
-        info!(
+        debug!(
             "get_node: index_name={}, shard_name={}, node_name={}",
             index_name, shard_name, node_name
         );
@@ -118,56 +119,27 @@ impl Discovery for Etcd {
 
     async fn get_nodes(
         &mut self,
-        index_name: &str,
-    ) -> Result<Vec<NodeStatus>, Box<dyn Error + Send + Sync>> {
-        info!("get_nodes: cluster={}", index_name);
+    ) -> Result<HashMap<String, NodeStatus>, Box<dyn Error + Send + Sync>> {
+        debug!("get_nodes");
 
-        // let mut interval = time::interval(Duration::from_secs(3));
-        // loop {
-        //     interval.tick().await;
-        //
-        //     let key = format!("{}/{}/", &self.root, cluster);
-        //     let get_response = match self
-        //         .client
-        //         .get(key, Some(GetOptions::new().with_prefix()))
-        //         .await
-        //     {
-        //         Ok(get_response) => get_response,
-        //         Err(e) => {
-        //             error!("{:?}", e);
-        //             continue;
-        //         }
-        //     };
-        //
-        //     for kv in get_response.kvs() {
-        //         info!("{}:{}", kv.key_str().unwrap(), kv.value_str().unwrap());
-        //     }
-        // }
+        let mut nodes: HashMap<String, NodeStatus> = HashMap::new();
 
-        // let (mut watcher, mut stream) = self.client.watch(key, None).await.unwrap();
-        //
-        // while let Some(resp) = stream.message().await.unwrap() {
-        //     info!("receive watch response");
-        //
-        //     if resp.canceled() {
-        //         info!("watch canceled");
-        //         break;
-        //     }
-        //
-        //     for event in resp.events() {
-        //         info!("event type: {:?}", event.event_type());
-        //         if let Some(kv) = event.kv() {
-        //             info!("kv: {{{}: {}}}", kv.key_str().unwrap(), kv.value_str().unwrap());
-        //         }
-        //
-        //         if EventType::Delete == event.event_type() {
-        //             watcher.cancel().await?;
-        //         }
-        //     }
-        // }
+        let key = format!("{}/", &self.root);
+        match self
+            .client
+            .get(key, Some(GetOptions::new().with_prefix()))
+            .await
+        {
+            Ok(get_response) => {
+                for kv in get_response.kvs() {
+                    let k = kv.key_str().unwrap().to_string();
+                    let v: NodeStatus = serde_json::from_str(kv.value_str().unwrap()).unwrap();
+                    nodes.insert(k, v);
+                }
+            }
+            Err(e) => error!("{:?}", e),
+        };
 
-        let r = vec![];
-
-        Ok(r)
+        Ok(nodes)
     }
 }

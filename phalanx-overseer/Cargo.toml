@@ -1,5 +1,5 @@
 [package]
-name = "phalanx-manager"
+name = "phalanx-overseer"
 version = "0.1.0"
 authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
 edition = "2018"
@@ -16,6 +16,8 @@ hyper = "0.13.5"
 log = "0.4.8"
 prometheus = "0.8.0"
 tokio = { version = "0.2.21", features = [ "full" ] }
+tonic = "0.2.1"
 
 phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
 phalanx-discovery = { version = "0.1.0", path = "../phalanx-discovery" }
+phalanx-proto = { version = "0.1.0", path = "../phalanx-proto" }

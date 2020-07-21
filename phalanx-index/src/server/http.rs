@@ -3,7 +3,7 @@ use prometheus::{Encoder, TextEncoder};
 use tonic::transport::Channel;
 
 use phalanx_proto::index::index_service_client::IndexServiceClient;
-use phalanx_proto::index::StatusReq;
+use phalanx_proto::index::{HealthReq, State};
 
 pub async fn handle(
     mut grpc_client: IndexServiceClient<Channel>,
@@ -22,29 +22,28 @@ pub async fn handle(
             *response.body_mut() = Body::from(metrics_text);
         }
         (&Method::GET, "/healthz/liveness") => {
-            let r = tonic::Request::new(StatusReq {});
-
-            match grpc_client.status(r).await {
-                Ok(resp) => {
-                    let status = resp.into_inner().status;
-                    *response.status_mut() = StatusCode::OK;
-                    *response.body_mut() = Body::from(status);
-                }
-                Err(e) => {
-                    let msg = format!("{:?}", e);
-                    *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-                    *response.body_mut() = Body::from(msg);
-                }
-            };
+            *response.status_mut() = StatusCode::OK;
         }
         (&Method::GET, "/healthz/readiness") => {
-            let r = tonic::Request::new(StatusReq {});
+            let r = tonic::Request::new(HealthReq {});
 
-            match grpc_client.status(r).await {
+            match grpc_client.health(r).await {
                 Ok(resp) => {
-                    let status = resp.into_inner().status;
-                    *response.status_mut() = StatusCode::OK;
-                    *response.body_mut() = Body::from(status);
+                    let state = resp.into_inner().state;
+                    match state {
+                        state if state == State::Ready as i32 => {
+                            *response.status_mut() = StatusCode::OK;
+                            *response.body_mut() = Body::from("Ready".to_string());
+                        }
+                        state if state == State::NotReady as i32 => {
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("Not ready".to_string());
+                        }
+                        _ => {
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("Unknown".to_string());
+                        }
+                    };
                 }
                 Err(e) => {
                     let msg = format!("{:?}", e);

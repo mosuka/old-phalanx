@@ -1,6 +1,8 @@
 pub mod etcd;
 pub mod null;
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -32,8 +34,7 @@ pub trait Discovery: Send + Sync + 'static {
 
     async fn get_nodes(
         &mut self,
-        cluster: &str,
-    ) -> Result<Vec<NodeStatus>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<HashMap<String, NodeStatus>, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

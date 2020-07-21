@@ -1,10 +1,9 @@
-use std::convert::TryFrom;
 use std::io::{Error, ErrorKind};
 
 use tonic::transport::Channel;
 
 use phalanx_proto::index::index_service_client::IndexServiceClient;
-use phalanx_proto::index::StatusReq;
+use phalanx_proto::index::{HealthReq, State};
 
 #[derive(Clone)]
 pub struct IndexClient {
@@ -23,12 +22,21 @@ impl IndexClient {
         }
     }
 
-    pub async fn status(&mut self) -> Result<String, Box<dyn std::error::Error>> {
-        let req = tonic::Request::new(StatusReq {});
+    pub async fn status(&mut self) -> Result<State, Box<dyn std::error::Error>> {
+        let req = tonic::Request::new(HealthReq {});
 
-        match self.client.status(req).await {
-            Ok(resp) => Ok(resp.into_inner().status),
-            Err(e) => Err(Box::try_from(Error::new(ErrorKind::Other, format!("{:?}", e))).unwrap()),
+        match self.client.health(req).await {
+            Ok(resp) => {
+                let state = resp.into_inner().state;
+                let s = match state {
+                    state if state == State::Ready as i32 => State::Ready,
+                    state if state == State::NotReady as i32 => State::NotReady,
+                    _ => State::NotReady,
+                };
+
+                Ok(s)
+            }
+            Err(e) => Err(Box::new(Error::new(ErrorKind::Other, format!("{:?}", e)))),
         }
     }
 }

@@ -31,7 +31,7 @@ $ phalanx-index --host=0.0.0.0 \
 Invoking RPCs example:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/index.proto -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Status
+$ grpcurl -proto phalanx-proto/proto/index.proto -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Health
 $ grpcurl -proto phalanx-proto/proto/index.proto -d '{ "id": "1" }' -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Get
 $ grpcurl -proto phalanx-proto/proto/index.proto -d "$(jq -c '. | {doc:@json}' ./examples/doc_1.json)" -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Set
 $ grpcurl -proto phalanx-proto/proto/index.proto -d '{ "id": "1" }' -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Delete

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 
 use async_trait::async_trait;
@@ -50,8 +51,7 @@ impl Discovery for Null {
 
     async fn get_nodes(
         &mut self,
-        _cluster: &str,
-    ) -> Result<Vec<NodeStatus>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<HashMap<String, NodeStatus>, Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
 }

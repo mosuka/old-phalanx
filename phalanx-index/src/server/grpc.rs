@@ -16,9 +16,9 @@ use tonic::{Code, Request, Response, Status};
 use phalanx_proto::index::index_service_server::IndexService;
 use phalanx_proto::index::{
     BulkDeleteReply, BulkDeleteReq, BulkSetReply, BulkSetReq, CommitReply, CommitReq, DeleteReply,
-    DeleteReq, GetReply, GetReq, MergeReply, MergeReq, PullReply, PullReq, PushReply, PushReq,
-    RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply, SearchReq, SetReply, SetReq,
-    StatusReply, StatusReq,
+    DeleteReq, GetReply, GetReq, HealthReply, HealthReq, MergeReply, MergeReq, PullReply, PullReq,
+    PushReply, PushReq, RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply, SearchReq,
+    SetReply, SetReq, State,
 };
 use phalanx_storage::storage::null::STORAGE_TYPE as NULL_STORAGE_TYPE;
 use phalanx_storage::storage::Storage;
@@ -185,15 +185,15 @@ impl MyIndexService {
 
 #[tonic::async_trait]
 impl IndexService for MyIndexService {
-    async fn status(&self, _request: Request<StatusReq>) -> Result<Response<StatusReply>, Status> {
+    async fn health(&self, _request: Request<HealthReq>) -> Result<Response<HealthReply>, Status> {
         REQUEST_COUNTER.with_label_values(&["status"]).inc();
         let timer = REQUEST_HISTOGRAM
             .with_label_values(&["status"])
             .start_timer();
 
-        let status = String::from("OK");
+        let state = State::Ready as i32;
 
-        let reply = StatusReply { status };
+        let reply = HealthReply { state };
 
         timer.observe_duration();
 
@@ -256,10 +256,7 @@ impl IndexService for MyIndexService {
             }
         };
 
-        let reply = GetReply {
-            status: String::from("OK"),
-            doc,
-        };
+        let reply = GetReply { doc };
 
         timer.observe_duration();
 
@@ -312,9 +309,7 @@ impl IndexService for MyIndexService {
 
         let _opstamp = self.index_writer.lock().unwrap().add_document(doc);
 
-        let reply = SetReply {
-            status: String::from("OK"),
-        };
+        let reply = SetReply {};
 
         timer.observe_duration();
         Ok(Response::new(reply))
@@ -341,9 +336,7 @@ impl IndexService for MyIndexService {
 
         let _opstamp = self.index_writer.lock().unwrap().delete_term(term);
 
-        let reply = DeleteReply {
-            status: String::from("OK"),
-        };
+        let reply = DeleteReply {};
 
         timer.observe_duration();
 
@@ -403,9 +396,7 @@ impl IndexService for MyIndexService {
             let _opstamp = self.index_writer.lock().unwrap().add_document(doc);
         }
 
-        let reply = BulkSetReply {
-            status: String::from("OK"),
-        };
+        let reply = BulkSetReply {};
 
         timer.observe_duration();
 
@@ -438,9 +429,7 @@ impl IndexService for MyIndexService {
             let _opstamp = self.index_writer.lock().unwrap().delete_term(term);
         }
 
-        let reply = BulkDeleteReply {
-            status: String::from("OK"),
-        };
+        let reply = BulkDeleteReply {};
 
         timer.observe_duration();
 
@@ -465,9 +454,7 @@ impl IndexService for MyIndexService {
             }
         };
 
-        let reply = CommitReply {
-            status: String::from("OK"),
-        };
+        let reply = CommitReply {};
 
         timer.observe_duration();
 
@@ -495,9 +482,7 @@ impl IndexService for MyIndexService {
             }
         };
 
-        let reply = RollbackReply {
-            status: String::from("OK"),
-        };
+        let reply = RollbackReply {};
 
         timer.observe_duration();
 
@@ -513,26 +498,13 @@ impl IndexService for MyIndexService {
         let segment_ids = self.index.searchable_segment_ids().unwrap();
         if segment_ids.len() <= 0 {
             debug!("there are no segment files that can be merged");
-            let reply = MergeReply {
-                status: String::from("OK"),
-            };
+            let reply = MergeReply {};
 
             timer.observe_duration();
 
             return Ok(Response::new(reply));
         }
 
-        // let segment_meta = match self.index_writer.lock().unwrap().merge(&segment_ids).await {
-        //     Ok(segment_meta) => segment_meta,
-        //     Err(e) => {
-        //         timer.observe_duration();
-        //
-        //         return Err(Status::new(
-        //             Code::Internal,
-        //             format!("failed to merge index: error = {:?}", e),
-        //         ));
-        //     }
-        // };
         let merge_future = self.index_writer.lock().unwrap().merge(&segment_ids);
         let segment_meta = match block_on(merge_future) {
             Ok(segment_meta) => segment_meta,
@@ -547,9 +519,7 @@ impl IndexService for MyIndexService {
         };
         debug!("merge index: segment_meta={:?}", segment_meta);
 
-        let reply = MergeReply {
-            status: String::from("OK"),
-        };
+        let reply = MergeReply {};
 
         timer.observe_duration();
 
@@ -578,9 +548,7 @@ impl IndexService for MyIndexService {
             }
         };
 
-        let reply = PushReply {
-            status: String::from("OK"),
-        };
+        let reply = PushReply {};
 
         timer.observe_duration();
 
@@ -609,9 +577,7 @@ impl IndexService for MyIndexService {
             }
         };
 
-        let reply = PullReply {
-            status: String::from("OK"),
-        };
+        let reply = PullReply {};
 
         timer.observe_duration();
 
@@ -636,10 +602,7 @@ impl IndexService for MyIndexService {
             }
         };
 
-        let reply = SchemaReply {
-            status: String::from("OK"),
-            schema,
-        };
+        let reply = SchemaReply { schema };
 
         timer.observe_duration();
 
@@ -755,10 +718,7 @@ impl IndexService for MyIndexService {
             }
         };
 
-        let reply = SearchReply {
-            status: String::from("OK"),
-            result,
-        };
+        let reply = SearchReply { result };
 
         timer.observe_duration();
 

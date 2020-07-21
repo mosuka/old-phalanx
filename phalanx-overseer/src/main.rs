@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate clap;
 
+use std::convert::TryFrom;
 use std::io::{Error as IOError, ErrorKind};
 use std::net::SocketAddr;
 
@@ -16,9 +17,8 @@ use phalanx_discovery::discovery::null::{
     Null as NullDiscovery, DISCOVERY_TYPE as NULL_DISCOVERY_TYPE,
 };
 use phalanx_discovery::discovery::Discovery;
-use phalanx_manager::overseer::{Overseer, Worker};
-use phalanx_manager::server::http::handle;
-use std::convert::TryFrom;
+use phalanx_overseer::overseer::{Overseer, Worker};
+use phalanx_overseer::server::http::handle;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
