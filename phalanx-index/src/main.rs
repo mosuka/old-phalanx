@@ -330,13 +330,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             shard_name: shard_name.to_string(),
             node_name: node_name.to_string(),
         };
-        let node_status = NodeStatus {
-            state: State::Active,
-            primary: false,
-            address: format!("{}:{}", host, grpc_port),
-        };
-        match discovery.set_node(node_key, node_status).await {
-            Ok(_) => (),
+        match discovery.get_node(node_key.clone()).await {
+            Ok(result) => {
+                match result {
+                    Some(node_status) => {
+                        // node exists
+                        info!(
+                            "node is already registered: node_key={:?}, node_status={:?}",
+                            &node_key, &node_status
+                        );
+                    }
+                    None => {
+                        // node does not exist
+                        let node_status = NodeStatus {
+                            state: State::Inactive,
+                            primary: false,
+                            address: format!("{}:{}", host, grpc_port),
+                        };
+                        match discovery.set_node(node_key, node_status).await {
+                            Ok(_) => (),
+                            Err(e) => return Err(e),
+                        };
+                    }
+                };
+            }
             Err(e) => return Err(e),
         };
     }

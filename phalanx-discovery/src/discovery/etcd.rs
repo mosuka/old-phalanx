@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::io::{Error as IOError, ErrorKind};
 
 use async_std::task::block_on;
 use async_trait::async_trait;
@@ -79,7 +78,7 @@ impl Discovery for Etcd {
     async fn get_node(
         &mut self,
         node_key: NodeKey,
-    ) -> Result<NodeStatus, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<NodeStatus>, Box<dyn Error + Send + Sync>> {
         debug!("get_node: node_key={:?}", node_key);
 
         let key = format!(
@@ -95,12 +94,12 @@ impl Discovery for Etcd {
             Some(kv) => {
                 let node_status: NodeStatus =
                     serde_json::from_str(kv.value_str().unwrap()).unwrap();
-                Ok(node_status)
+                Ok(Some(node_status))
             }
-            None => Err(Box::new(IOError::new(
-                ErrorKind::NotFound,
-                format!("key does not fount: {}", &key),
-            ))),
+            None => {
+                debug!("key does not fount: {}", &key);
+                Ok(None)
+            }
         }
     }
 

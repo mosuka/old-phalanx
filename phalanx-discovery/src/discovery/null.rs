@@ -39,7 +39,7 @@ impl Discovery for Null {
     async fn get_node(
         &mut self,
         _node_key: NodeKey,
-    ) -> Result<NodeStatus, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<NodeStatus>, Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
 

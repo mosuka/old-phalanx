@@ -72,8 +72,8 @@ impl Worker for Overseer {
                                 match IndexServiceClient::connect(grpc_server_url.clone()).await {
                                     Ok(mut grpc_client) => {
                                         // health check
-                                        let req = tonic::Request::new(HealthReq {});
-                                        match grpc_client.health(req).await {
+                                        let health_req = tonic::Request::new(HealthReq {});
+                                        match grpc_client.health(health_req).await {
                                             Ok(resp) => {
                                                 match resp.into_inner().state {
                                                     state if state == HealthState::Ready as i32 => {

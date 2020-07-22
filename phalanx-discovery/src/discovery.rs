@@ -24,7 +24,7 @@ pub trait Discovery: Send + Sync + 'static {
     async fn get_node(
         &mut self,
         node_key: NodeKey,
-    ) -> Result<NodeStatus, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<Option<NodeStatus>, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn get_nodes(
         &mut self,
