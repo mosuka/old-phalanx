@@ -9,7 +9,7 @@ Phalanx makes easy for programmers to develop search applications with advanced 
 $ phalanx-index --host=0.0.0.0 \
                 --grpc-port=5000 \
                 --http-port=8000 \
-                --index-directory=${HOME}/tmp/phalanx \
+                --index-directory=${HOME}/tmp/phalanx0 \
                 --schema-file=./examples/schema.json \
                 --tokenizer-file=./examples/tokenizer.json \
                 --indexer-threads=1 \
@@ -18,6 +18,75 @@ $ phalanx-index --host=0.0.0.0 \
                 --index-name=index0 \
                 --shard-name=shard0 \
                 --node-name=node0 \
+                --discovery-type=etcd \
+                --etcd-endpoints=127.0.0.1:2379 \
+                --etcd-root=/phalanx \
+                --storage-type=minio \
+                --minio-access-key=minioadmin \
+                --minio-secret-key=minioadmin \
+                --minio-endpoint=http://127.0.0.1:9000 \
+                --minio-bucket=phalanx
+```
+
+```shell script
+$ phalanx-index --host=0.0.0.0 \
+                --grpc-port=5001 \
+                --http-port=8001 \
+                --index-directory=${HOME}/tmp/phalanx1 \
+                --schema-file=./examples/schema.json \
+                --tokenizer-file=./examples/tokenizer.json \
+                --indexer-threads=1 \
+                --indexer-memory-size=500000000 \
+                --unique-id-field=id \
+                --index-name=index0 \
+                --shard-name=shard0 \
+                --node-name=node1 \
+                --discovery-type=etcd \
+                --etcd-endpoints=127.0.0.1:2379 \
+                --etcd-root=/phalanx \
+                --storage-type=minio \
+                --minio-access-key=minioadmin \
+                --minio-secret-key=minioadmin \
+                --minio-endpoint=http://127.0.0.1:9000 \
+                --minio-bucket=phalanx
+```
+
+```shell script
+$ phalanx-index --host=0.0.0.0 \
+                --grpc-port=5002 \
+                --http-port=8002 \
+                --index-directory=${HOME}/tmp/phalanx2 \
+                --schema-file=./examples/schema.json \
+                --tokenizer-file=./examples/tokenizer.json \
+                --indexer-threads=1 \
+                --indexer-memory-size=500000000 \
+                --unique-id-field=id \
+                --index-name=index0 \
+                --shard-name=shard1 \
+                --node-name=node2 \
+                --discovery-type=etcd \
+                --etcd-endpoints=127.0.0.1:2379 \
+                --etcd-root=/phalanx \
+                --storage-type=minio \
+                --minio-access-key=minioadmin \
+                --minio-secret-key=minioadmin \
+                --minio-endpoint=http://127.0.0.1:9000 \
+                --minio-bucket=phalanx
+```
+
+```shell script
+$ phalanx-index --host=0.0.0.0 \
+                --grpc-port=5003 \
+                --http-port=8003 \
+                --index-directory=${HOME}/tmp/phalanx3 \
+                --schema-file=./examples/schema.json \
+                --tokenizer-file=./examples/tokenizer.json \
+                --indexer-threads=1 \
+                --indexer-memory-size=500000000 \
+                --unique-id-field=id \
+                --index-name=index0 \
+                --shard-name=shard1 \
+                --node-name=node3 \
                 --discovery-type=etcd \
                 --etcd-endpoints=127.0.0.1:2379 \
                 --etcd-root=/phalanx \

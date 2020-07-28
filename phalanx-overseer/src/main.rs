@@ -17,7 +17,8 @@ use phalanx_discovery::discovery::null::{
     Null as NullDiscovery, DISCOVERY_TYPE as NULL_DISCOVERY_TYPE,
 };
 use phalanx_discovery::discovery::Discovery;
-use phalanx_overseer::overseer::{Overseer, Worker};
+use phalanx_overseer::overseer::overseer::Overseer;
+use phalanx_overseer::overseer::Worker;
 use phalanx_overseer::server::http::handle;
 
 #[tokio::main]
