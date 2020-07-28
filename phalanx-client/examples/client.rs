@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match client.status().await {
         Ok(status) => {
-            println!("{}", status);
+            println!("{:?}", status);
             Ok(())
         }
         Err(e) => Err(Box::try_from(Error::new(ErrorKind::Other, format!("{:?}", e))).unwrap()),

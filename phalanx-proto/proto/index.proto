@@ -5,7 +5,7 @@ package phalanx_index;
 option go_package = "pkg/proto";
 
 service IndexService {
-    rpc Status (StatusReq) returns (StatusReply) {}
+    rpc Health (HealthReq) returns (HealthReply) {}
     rpc Get(GetReq) returns (GetReply) {}
     rpc Set(SetReq) returns (SetReply) {}
     rpc Delete(DeleteReq) returns (DeleteReply) {}
@@ -20,10 +20,15 @@ service IndexService {
     rpc Search (SearchReq) returns (SearchReply) {}
 }
 
-message StatusReq {}
+enum State {
+    READY = 0;
+    NOT_READY = 1;
+}
 
-message StatusReply {
-    string status = 1;
+message HealthReq {}
+
+message HealthReply {
+    State state = 1;
 }
 
 message GetReq {
@@ -31,77 +36,57 @@ message GetReq {
 }
 
 message GetReply {
-    string status = 1;
-    string doc = 2;
+    string doc = 1;
 }
 
 message SetReq {
     string doc = 1;
 }
 
-message SetReply {
-    string status = 1;
-}
+message SetReply {}
 
 message DeleteReq {
     string id = 1;
 }
 
-message DeleteReply {
-    string status = 1;
-}
+message DeleteReply {}
 
 message BulkSetReq {
     repeated SetReq requests = 1;
 }
 
-message BulkSetReply {
-    string status = 1;
-}
+message BulkSetReply {}
 
 message BulkDeleteReq {
     repeated DeleteReq requests = 1;
 }
 
-message BulkDeleteReply {
-    string status = 1;
-}
+message BulkDeleteReply {}
 
 message CommitReq {}
 
-message CommitReply {
-    string status = 1;
-}
+message CommitReply {}
 
 message RollbackReq {}
 
-message RollbackReply {
-    string status = 1;
-}
+message RollbackReply {}
 
 message MergeReq {}
 
-message MergeReply {
-    string status = 1;
-}
+message MergeReply {}
 
 message PushReq {}
 
-message PushReply {
-    string status = 1;
-}
+message PushReply {}
 
 message PullReq {}
 
-message PullReply {
-    string status = 1;
-}
+message PullReply {}
 
 message SchemaReq {}
 
 message SchemaReply {
-    string status = 1;
-    string schema = 2;
+    string schema = 1;
 }
 
 message SearchReq {
@@ -115,6 +100,5 @@ message SearchReq {
 }
 
 message SearchReply {
-    string status = 1;
-    string result = 2;
+    string result = 1;
 }
