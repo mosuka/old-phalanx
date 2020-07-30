@@ -6,10 +6,10 @@ use std::time::Duration;
 use crossbeam_channel::{unbounded, Sender, TryRecvError};
 use log::*;
 
-use phalanx_discovery::discovery::{Discovery, Role, State};
 use phalanx_proto::index::index_service_client::IndexServiceClient;
 use phalanx_proto::index::{HealthReq, State as HealthState};
 
+use crate::discovery::{Discovery, Role, State};
 use crate::overseer::{Message, Worker, WorkerError};
 
 pub struct Overseer {

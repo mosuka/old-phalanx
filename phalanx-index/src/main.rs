@@ -12,10 +12,8 @@ use tokio::signal;
 use tonic::transport::Server as TonicServer;
 
 use phalanx_common::log::set_logger;
-use phalanx_discovery::discovery::etcd::{Etcd, DISCOVERY_TYPE as ETCD_DISCOVERY_TYPE};
-use phalanx_discovery::discovery::null::{
-    Null as NullDiscovery, DISCOVERY_TYPE as NULL_DISCOVERY_TYPE,
-};
+use phalanx_discovery::discovery::etcd::{Etcd, TYPE as ETCD_DISCOVERY_TYPE};
+use phalanx_discovery::discovery::null::{Null as NullDiscovery, TYPE as NULL_DISCOVERY_TYPE};
 use phalanx_discovery::discovery::{Discovery, NodeStatus, Role, State};
 use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,

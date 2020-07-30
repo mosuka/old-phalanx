@@ -1,12 +1,12 @@
+use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 use std::error::Error;
 
 use async_trait::async_trait;
 
 use crate::discovery::{Discovery, NodeStatus};
-use std::collections::hash_map::RandomState;
 
-pub const DISCOVERY_TYPE: &str = "null";
+pub const TYPE: &str = "null";
 
 pub struct Null {}
 
@@ -19,7 +19,7 @@ impl Null {
 #[async_trait]
 impl Discovery for Null {
     fn get_type(&self) -> &str {
-        DISCOVERY_TYPE
+        TYPE
     }
 
     async fn get_indices(&mut self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {

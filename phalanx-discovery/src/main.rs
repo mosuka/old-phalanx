@@ -12,14 +12,12 @@ use log::*;
 use tokio::signal;
 
 use phalanx_common::log::set_logger;
-use phalanx_discovery::discovery::etcd::{Etcd, DISCOVERY_TYPE as ETCD_DISCOVERY_TYPE};
-use phalanx_discovery::discovery::null::{
-    Null as NullDiscovery, DISCOVERY_TYPE as NULL_DISCOVERY_TYPE,
-};
+use phalanx_discovery::discovery::etcd::{Etcd, TYPE as ETCD_TYPE};
+use phalanx_discovery::discovery::null::{Null as NullDiscovery, TYPE as NULL_TYPE};
 use phalanx_discovery::discovery::Discovery;
-use phalanx_overseer::overseer::overseer::Overseer;
-use phalanx_overseer::overseer::Worker;
-use phalanx_overseer::server::http::handle;
+use phalanx_discovery::overseer::overseer::Overseer;
+use phalanx_discovery::overseer::Worker;
+use phalanx_discovery::server::http::handle;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -111,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .unwrap();
 
     let discovery: Box<dyn Discovery> = match discovery_type {
-        ETCD_DISCOVERY_TYPE => {
+        ETCD_TYPE => {
             info!("enable etcd");
             Box::new(Etcd::new(etcd_endpoints, etcd_root))
         }
@@ -120,7 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Box::new(NullDiscovery::new())
         }
     };
-    if discovery.get_type() == NULL_DISCOVERY_TYPE {
+    if discovery.get_type() == NULL_TYPE {
         return Err(Box::try_from(IOError::new(
             ErrorKind::Other,
             format!("unsupported discovery type: {}", discovery_type),

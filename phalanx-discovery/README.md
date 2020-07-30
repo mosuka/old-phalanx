@@ -6,7 +6,7 @@ Phalanx is a cloud-based index writer and searcher written in [Rust](https://www
 Phalanx makes easy for programmers to develop search applications with advanced features and high availability.
 
 ```shell script
-$ phalanx-overseer --host=0.0.0.0 \
+$ phalanx-discovery --host=0.0.0.0 \
                    --http-port=8100 \
                    --discovery-type=etcd \
                    --etcd-endpoints=127.0.0.1:2379 \
