@@ -3,7 +3,7 @@ use std::io::{Error, ErrorKind};
 use tonic::transport::Channel;
 
 use phalanx_proto::index::index_service_client::IndexServiceClient;
-use phalanx_proto::index::{HealthReq, State};
+use phalanx_proto::index::{ReadinessReq, State};
 
 #[derive(Clone)]
 pub struct IndexClient {
@@ -22,10 +22,10 @@ impl IndexClient {
         }
     }
 
-    pub async fn status(&mut self) -> Result<State, Box<dyn std::error::Error>> {
-        let req = tonic::Request::new(HealthReq {});
+    pub async fn readiness(&mut self) -> Result<State, Box<dyn std::error::Error>> {
+        let req = tonic::Request::new(ReadinessReq {});
 
-        match self.client.health(req).await {
+        match self.client.readiness(req).await {
             Ok(resp) => {
                 let state = resp.into_inner().state;
                 let s = match state {

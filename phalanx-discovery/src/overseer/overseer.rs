@@ -7,7 +7,7 @@ use crossbeam_channel::{unbounded, Sender, TryRecvError};
 use log::*;
 
 use phalanx_proto::index::index_service_client::IndexServiceClient;
-use phalanx_proto::index::{HealthReq, State as HealthState};
+use phalanx_proto::index::{ReadinessReq, State as ReadinessState};
 
 use crate::discovery::{Discovery, Role, State};
 use crate::overseer::{Message, Worker, WorkerError};
@@ -63,11 +63,11 @@ impl Worker for Overseer {
                                                 match IndexServiceClient::connect(grpc_server_url.clone()).await {
                                                     Ok(mut grpc_client) => {
                                                         // health check
-                                                        let health_req = tonic::Request::new(HealthReq {});
-                                                        match grpc_client.health(health_req).await {
+                                                        let readiness_req = tonic::Request::new(ReadinessReq {});
+                                                        match grpc_client.readiness(readiness_req).await {
                                                             Ok(resp) => {
                                                                 match resp.into_inner().state {
-                                                                    state if state == HealthState::Ready as i32 => {
+                                                                    state if state == ReadinessState::Ready as i32 => {
                                                                         // ready
                                                                         if node_status.state != State::Ready {
                                                                             node_status.state = State::Ready;

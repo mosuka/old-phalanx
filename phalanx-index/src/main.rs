@@ -19,7 +19,7 @@ use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
 };
-use phalanx_index::server::grpc::MyIndexService;
+use phalanx_index::server::grpc::IndexService;
 use phalanx_index::server::http::handle;
 use phalanx_proto::index::index_service_client::IndexServiceClient;
 use phalanx_proto::index::index_service_server::IndexServiceServer;
@@ -298,8 +298,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     index_config.unique_key_field = String::from(unique_key_field);
 
     let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
-    let grpc_service = MyIndexService::new(index_config, index_name, shard_name, storage);
-
+    let grpc_service = IndexService::new(index_config, index_name, shard_name, storage);
     tokio::spawn(
         TonicServer::builder()
             .add_service(IndexServiceServer::new(grpc_service))

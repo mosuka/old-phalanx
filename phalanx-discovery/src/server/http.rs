@@ -1,7 +1,14 @@
 use hyper::{Body, Method, Request, Response, StatusCode};
 use prometheus::{Encoder, TextEncoder};
+use tonic::transport::Channel;
 
-pub async fn handle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+use phalanx_proto::discovery::discovery_service_client::DiscoveryServiceClient;
+use phalanx_proto::discovery::{ReadinessReq, State};
+
+pub async fn handle(
+    mut grpc_client: DiscoveryServiceClient<Channel>,
+    req: Request<Body>,
+) -> Result<Response<Body>, hyper::Error> {
     let mut response = Response::new(Body::empty());
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/metrics") => {
@@ -13,6 +20,37 @@ pub async fn handle(req: Request<Body>) -> Result<Response<Body>, hyper::Error> 
 
             *response.status_mut() = StatusCode::OK;
             *response.body_mut() = Body::from(metrics_text);
+        }
+        (&Method::GET, "/healthz/liveness") => {
+            *response.status_mut() = StatusCode::OK;
+        }
+        (&Method::GET, "/healthz/readiness") => {
+            let r = tonic::Request::new(ReadinessReq {});
+
+            match grpc_client.readiness(r).await {
+                Ok(resp) => {
+                    let state = resp.into_inner().state;
+                    match state {
+                        state if state == State::Ready as i32 => {
+                            *response.status_mut() = StatusCode::OK;
+                            *response.body_mut() = Body::from("Ready".to_string());
+                        }
+                        state if state == State::NotReady as i32 => {
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("Not ready".to_string());
+                        }
+                        _ => {
+                            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                            *response.body_mut() = Body::from("Unknown".to_string());
+                        }
+                    };
+                }
+                Err(e) => {
+                    let msg = format!("{:?}", e);
+                    *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    *response.body_mut() = Body::from(msg);
+                }
+            };
         }
         _ => {
             *response.status_mut() = StatusCode::NOT_FOUND;
