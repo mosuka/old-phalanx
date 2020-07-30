@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::error::Error;
 use std::fs;
 use std::io::ErrorKind;
@@ -90,7 +89,7 @@ impl Minio {
 
                 keys
             }
-            Err(e) => return Err(Box::try_from(e).unwrap()),
+            Err(e) => return Err(Box::new(e)),
         };
 
         Ok(keys)
@@ -122,7 +121,7 @@ impl Minio {
 
                 keys
             }
-            Err(e) => return Err(Box::try_from(e).unwrap()),
+            Err(e) => return Err(Box::new(e)),
         };
 
         Ok(keys)
@@ -158,7 +157,7 @@ impl Minio {
             .await
         {
             Ok(_output) => (),
-            Err(e) => return Err(Box::try_from(e).unwrap()),
+            Err(e) => return Err(Box::new(e)),
         };
 
         Ok(())
@@ -182,7 +181,7 @@ impl Minio {
             .await
         {
             Ok(output) => output,
-            Err(e) => return Err(Box::try_from(e).unwrap()),
+            Err(e) => return Err(Box::new(e)),
         };
 
         // create directory
@@ -193,7 +192,7 @@ impl Minio {
                 if e.kind() == ErrorKind::AlreadyExists {
                     debug!("already exists: {}", parent.to_str().unwrap())
                 } else {
-                    return Err(Box::try_from(e).unwrap());
+                    return Err(Box::new(e));
                 }
             }
         };
@@ -219,7 +218,7 @@ impl Minio {
             .await
         {
             Ok(_output) => (),
-            Err(e) => return Err(Box::try_from(e).unwrap()),
+            Err(e) => return Err(Box::new(e)),
         };
 
         Ok(())
@@ -293,7 +292,7 @@ impl Storage for Minio {
                 match fs::remove_file(&file_path) {
                     Ok(()) => info!("delete: {}", &file_path),
                     Err(e) => {
-                        return Err(Box::try_from(e).unwrap());
+                        return Err(Box::new(e));
                     }
                 };
             }

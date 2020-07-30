@@ -1,3 +1,4 @@
+use std::collections::hash_map::RandomState;
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -7,9 +8,8 @@ use etcd_client::{Client, GetOptions};
 use log::*;
 
 use crate::discovery::{Discovery, NodeStatus, Role, State};
-use std::collections::hash_map::RandomState;
 
-pub const DISCOVERY_TYPE: &str = "etcd";
+pub const TYPE: &str = "etcd";
 
 pub struct Etcd {
     pub client: Client,
@@ -38,7 +38,7 @@ impl Etcd {
 #[async_trait]
 impl Discovery for Etcd {
     fn get_type(&self) -> &str {
-        DISCOVERY_TYPE
+        TYPE
     }
 
     async fn get_indices(&mut self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
