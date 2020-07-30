@@ -5,7 +5,7 @@ package phalanx_index;
 option go_package = "pkg/proto";
 
 service IndexService {
-    rpc Health (HealthReq) returns (HealthReply) {}
+    rpc Readiness (ReadinessReq) returns (ReadinessReply) {}
     rpc Get(GetReq) returns (GetReply) {}
     rpc Set(SetReq) returns (SetReply) {}
     rpc Delete(DeleteReq) returns (DeleteReply) {}
@@ -25,9 +25,9 @@ enum State {
     NOT_READY = 1;
 }
 
-message HealthReq {}
+message ReadinessReq {}
 
-message HealthReply {
+message ReadinessReply {
     State state = 1;
 }
 

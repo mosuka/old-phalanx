@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut client = IndexClient::new(addr).await;
 
-    match client.status().await {
+    match client.readiness().await {
         Ok(status) => {
             println!("{:?}", status);
             Ok(())

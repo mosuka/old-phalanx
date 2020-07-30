@@ -3,7 +3,7 @@ use prometheus::{Encoder, TextEncoder};
 use tonic::transport::Channel;
 
 use phalanx_proto::index::index_service_client::IndexServiceClient;
-use phalanx_proto::index::{HealthReq, State};
+use phalanx_proto::index::{ReadinessReq, State};
 
 pub async fn handle(
     mut grpc_client: IndexServiceClient<Channel>,
@@ -25,9 +25,9 @@ pub async fn handle(
             *response.status_mut() = StatusCode::OK;
         }
         (&Method::GET, "/healthz/readiness") => {
-            let r = tonic::Request::new(HealthReq {});
+            let r = tonic::Request::new(ReadinessReq {});
 
-            match grpc_client.health(r).await {
+            match grpc_client.readiness(r).await {
                 Ok(resp) => {
                     let state = resp.into_inner().state;
                     match state {

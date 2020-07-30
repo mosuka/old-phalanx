@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package phalanx_discovery;
+
+option go_package = "pkg/proto";
+
+service DiscoveryService {
+  rpc Readiness (ReadinessReq) returns (ReadinessReply) {}
+}
+
+enum State {
+  READY = 0;
+  NOT_READY = 1;
+}
+
+message ReadinessReq {}
+
+message ReadinessReply {
+  State state = 1;
+}

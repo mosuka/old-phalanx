@@ -13,12 +13,12 @@ use tantivy::schema::{Field, FieldType, IndexRecordOption, Schema};
 use tantivy::{Document, Index, IndexWriter, Term};
 use tonic::{Code, Request, Response, Status};
 
-use phalanx_proto::index::index_service_server::IndexService;
+use phalanx_proto::index::index_service_server::IndexService as ProtoIndexService;
 use phalanx_proto::index::{
     BulkDeleteReply, BulkDeleteReq, BulkSetReply, BulkSetReq, CommitReply, CommitReq, DeleteReply,
-    DeleteReq, GetReply, GetReq, HealthReply, HealthReq, MergeReply, MergeReq, PullReply, PullReq,
-    PushReply, PushReq, RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply, SearchReq,
-    SetReply, SetReq, State,
+    DeleteReq, GetReply, GetReq, MergeReply, MergeReq, PullReply, PullReq, PushReply, PushReq,
+    ReadinessReply, ReadinessReq, RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply,
+    SearchReq, SetReply, SetReq, State,
 };
 use phalanx_storage::storage::null::STORAGE_TYPE as NULL_STORAGE_TYPE;
 use phalanx_storage::storage::Storage;
@@ -29,32 +29,20 @@ use crate::tokenizer::tokenizer_initializer::TokenizerInitializer;
 
 lazy_static! {
     static ref REQUEST_COUNTER: CounterVec = register_counter_vec!(
-        "phalanx_requests_total",
+        "phalanx_index_requests_total",
         "Total number of requests.",
         &["func"]
     )
     .unwrap();
     static ref REQUEST_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "phalanx_request_duration_seconds",
+        "phalanx_index_request_duration_seconds",
         "The request latencies in seconds.",
-        &["func"]
-    )
-    .unwrap();
-    static ref APPLY_COUNTER: CounterVec = register_counter_vec!(
-        "phalanx_applies_total",
-        "Total number of applies.",
-        &["func"]
-    )
-    .unwrap();
-    static ref APPLY_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "phalanx_apply_duration_seconds",
-        "The apply latencies in seconds.",
         &["func"]
     )
     .unwrap();
 }
 
-pub struct MyIndexService {
+pub struct IndexService {
     index_config: IndexConfig,
     index: Arc<Index>,
     index_writer: Arc<Mutex<IndexWriter>>,
@@ -63,13 +51,13 @@ pub struct MyIndexService {
     storage: Box<dyn Storage>,
 }
 
-impl MyIndexService {
+impl IndexService {
     pub fn new(
         index_config: IndexConfig,
         cluster: &str,
         shard: &str,
         storage: Box<dyn Storage>,
-    ) -> MyIndexService {
+    ) -> IndexService {
         // create user schema
         let schema_content = match fs::read_to_string(&index_config.schema_file) {
             Ok(content) => content,
@@ -166,7 +154,7 @@ impl MyIndexService {
 
         index_writer.set_merge_policy(Box::new(LogMergePolicy::default()));
 
-        MyIndexService {
+        IndexService {
             index_config,
             index: Arc::new(index),
             index_writer: Arc::new(Mutex::new(index_writer)),
@@ -184,16 +172,19 @@ impl MyIndexService {
 }
 
 #[tonic::async_trait]
-impl IndexService for MyIndexService {
-    async fn health(&self, _request: Request<HealthReq>) -> Result<Response<HealthReply>, Status> {
-        REQUEST_COUNTER.with_label_values(&["status"]).inc();
+impl ProtoIndexService for IndexService {
+    async fn readiness(
+        &self,
+        _request: Request<ReadinessReq>,
+    ) -> Result<Response<ReadinessReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["readiness"]).inc();
         let timer = REQUEST_HISTOGRAM
-            .with_label_values(&["status"])
+            .with_label_values(&["readiness"])
             .start_timer();
 
         let state = State::Ready as i32;
 
-        let reply = HealthReply { state };
+        let reply = ReadinessReply { state };
 
         timer.observe_duration();
 
