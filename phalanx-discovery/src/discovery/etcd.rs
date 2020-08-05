@@ -7,7 +7,9 @@ use async_trait::async_trait;
 use etcd_client::{Client, GetOptions};
 use log::*;
 
-use crate::discovery::{Discovery, NodeStatus, Role, State};
+use phalanx_proto::phalanx::{NodeDetails, Role, State};
+
+use crate::discovery::Discovery;
 
 pub const TYPE: &str = "etcd";
 
@@ -106,8 +108,8 @@ impl Discovery for Etcd {
         &mut self,
         index_name: &str,
         shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeStatus>>, Box<dyn Error + Send + Sync>> {
-        let mut nodes: HashMap<String, Option<NodeStatus>> = HashMap::new();
+    ) -> Result<HashMap<String, Option<NodeDetails>>, Box<dyn Error + Send + Sync>> {
+        let mut nodes: HashMap<String, Option<NodeDetails>> = HashMap::new();
         let key = format!("{}/{}/{}/", &self.root, index_name, shard_name);
         match self
             .client
@@ -117,9 +119,9 @@ impl Discovery for Etcd {
             Ok(get_response) => {
                 for kv in get_response.kvs() {
                     let node_name = &kv.key_str().unwrap()[&key.len() + 0..];
-                    let node_status: NodeStatus =
+                    let node_details: NodeDetails =
                         serde_json::from_str(kv.value_str().unwrap()).unwrap();
-                    nodes.insert(node_name.to_string(), Some(node_status));
+                    nodes.insert(node_name.to_string(), Some(node_details));
                 }
             }
             Err(e) => return Err(Box::new(e)),
@@ -133,7 +135,7 @@ impl Discovery for Etcd {
         index_name: &str,
         shard_name: &str,
         node_name: &str,
-    ) -> Result<Option<NodeStatus>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<NodeDetails>, Box<dyn Error + Send + Sync>> {
         let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
         let get_response = match self.client.get(key.clone(), None).await {
             Ok(get_response) => get_response,
@@ -141,9 +143,9 @@ impl Discovery for Etcd {
         };
         match get_response.kvs().first() {
             Some(kv) => {
-                let node_status: NodeStatus =
+                let node_details: NodeDetails =
                     serde_json::from_str(kv.value_str().unwrap()).unwrap();
-                Ok(Some(node_status))
+                Ok(Some(node_details))
             }
             None => Ok(None),
         }
@@ -154,10 +156,10 @@ impl Discovery for Etcd {
         index_name: &str,
         shard_name: &str,
         node_name: &str,
-        node_status: NodeStatus,
+        node_details: NodeDetails,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
-        let value = serde_json::to_string(&node_status).unwrap();
+        let value = serde_json::to_string(&node_details).unwrap();
         match self.client.put(key, value, None).await {
             Ok(_put_response) => Ok(()),
             Err(e) => Err(Box::new(e)),
@@ -185,11 +187,11 @@ impl Discovery for Etcd {
         match self.get_nodes(index_name, shard_name).await {
             Ok(resp) => {
                 let mut node_names = Vec::new();
-                for (node_name, node_status_opt) in resp {
-                    match node_status_opt {
-                        Some(node_status) => {
-                            if node_status.state == State::Ready
-                                && node_status.role == Role::Primary
+                for (node_name, node_details) in resp {
+                    match node_details {
+                        Some(node_details) => {
+                            if node_details.state == State::Ready as i32
+                                && node_details.role == Role::Primary as i32
                             {
                                 node_names.push(node_name);
                             }
@@ -223,19 +225,19 @@ impl Discovery for Etcd {
         &mut self,
         index_name: &str,
         shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeStatus>, RandomState>, Box<dyn Error + Send + Sync>>
+    ) -> Result<HashMap<String, Option<NodeDetails>, RandomState>, Box<dyn Error + Send + Sync>>
     {
-        let mut nodes: HashMap<String, Option<NodeStatus>> = HashMap::new();
+        let mut nodes: HashMap<String, Option<NodeDetails>> = HashMap::new();
 
         match self.get_nodes(index_name, shard_name).await {
             Ok(resp) => {
-                for (node_name, node_status_opt) in resp {
-                    match node_status_opt {
-                        Some(node_status) => {
-                            if node_status.state == State::Ready
-                                && node_status.role == Role::Replica
+                for (node_name, node_details) in resp {
+                    match node_details {
+                        Some(node_details) => {
+                            if node_details.state == State::Ready as i32
+                                && node_details.role == Role::Replica as i32
                             {
-                                nodes.insert(node_name, Some(node_status));
+                                nodes.insert(node_name, Some(node_details));
                             }
                         }
                         None => {
@@ -260,19 +262,19 @@ impl Discovery for Etcd {
         &mut self,
         index_name: &str,
         shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeStatus>, RandomState>, Box<dyn Error + Send + Sync>>
+    ) -> Result<HashMap<String, Option<NodeDetails>, RandomState>, Box<dyn Error + Send + Sync>>
     {
-        let mut nodes: HashMap<String, Option<NodeStatus>> = HashMap::new();
+        let mut nodes: HashMap<String, Option<NodeDetails>> = HashMap::new();
 
         match self.get_nodes(index_name, shard_name).await {
             Ok(resp) => {
-                for (node_name, node_status_opt) in resp {
-                    match node_status_opt {
-                        Some(node_status) => {
-                            if node_status.state == State::Ready
-                                && node_status.role == Role::Candidate
+                for (node_name, node_details) in resp {
+                    match node_details {
+                        Some(node_details) => {
+                            if node_details.state == State::Ready as i32
+                                && node_details.role == Role::Candidate as i32
                             {
-                                nodes.insert(node_name, Some(node_status));
+                                nodes.insert(node_name, Some(node_details));
                             }
                         }
                         None => {

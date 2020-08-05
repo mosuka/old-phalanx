@@ -2,8 +2,8 @@ use hyper::{Body, Method, Request, Response, StatusCode};
 use prometheus::{Encoder, TextEncoder};
 use tonic::transport::Channel;
 
-use phalanx_proto::index::index_service_client::IndexServiceClient;
-use phalanx_proto::index::{ReadinessReq, State};
+use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
+use phalanx_proto::phalanx::{ReadinessReq, State};
 
 pub async fn handle(
     mut grpc_client: IndexServiceClient<Channel>,

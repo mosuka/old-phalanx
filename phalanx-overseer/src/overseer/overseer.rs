@@ -6,11 +6,11 @@ use std::time::Duration;
 use crossbeam_channel::{unbounded, Sender, TryRecvError};
 use log::*;
 
-use phalanx_proto::index::index_service_client::IndexServiceClient;
-use phalanx_proto::index::{ReadinessReq, State as ReadinessState};
+use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
+use phalanx_proto::phalanx::{ReadinessReq, Role, State};
 
 use crate::overseer::{Message, Worker, WorkerError};
-use phalanx_discovery::discovery::{Discovery, Role, State};
+use phalanx_discovery::discovery::Discovery;
 
 pub struct Overseer {
     sender: Option<Sender<Message>>,
@@ -55,11 +55,11 @@ impl Worker for Overseer {
                         rt.block_on( async {
                             for index_name in d.get_indices().await.unwrap() {
                                 for shard_name in d.get_shards(&index_name).await.unwrap() {
-                                    for (node_name, node_status_opt) in d.get_nodes(&index_name, &shard_name).await.unwrap() {
-                                        match node_status_opt {
-                                            Some(mut node_status) => {
-                                                debug!("health check: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_status);
-                                                let grpc_server_url = format!("http://{}", &node_status.address);
+                                    for (node_name, node_details) in d.get_nodes(&index_name, &shard_name).await.unwrap() {
+                                        match node_details {
+                                            Some(mut node_details) => {
+                                                debug!("health check: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_details);
+                                                let grpc_server_url = format!("http://{}", &node_details.address);
                                                 match IndexServiceClient::connect(grpc_server_url.clone()).await {
                                                     Ok(mut grpc_client) => {
                                                         // health check
@@ -67,21 +67,21 @@ impl Worker for Overseer {
                                                         match grpc_client.readiness(readiness_req).await {
                                                             Ok(resp) => {
                                                                 match resp.into_inner().state {
-                                                                    state if state == ReadinessState::Ready as i32 => {
+                                                                    state if state == State::Ready as i32 => {
                                                                         // ready
-                                                                        if node_status.state != State::Ready {
-                                                                            node_status.state = State::Ready;
-                                                                            d.set_node(&index_name, &shard_name, &node_name, node_status.clone()).await.unwrap();
-                                                                            debug!("node state has changed: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_status);
+                                                                        if node_details.state != State::Ready as i32 {
+                                                                            node_details.state = State::Ready as i32;
+                                                                            d.set_node(&index_name, &shard_name, &node_name, node_details.clone()).await.unwrap();
+                                                                            debug!("node state has changed: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_details);
                                                                         }
                                                                     }
                                                                     _ => {
                                                                         // not ready
-                                                                        if node_status.state != State::NotReady {
-                                                                            node_status.role = Role::Candidate;
-                                                                            node_status.state = State::NotReady;
-                                                                            d.set_node(&index_name, &shard_name, &node_name, node_status.clone()).await.unwrap();
-                                                                            debug!("node state has changed: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_status);
+                                                                        if node_details.state != State::NotReady as i32 {
+                                                                            node_details.role = Role::Candidate as i32;
+                                                                            node_details.state = State::NotReady as i32;
+                                                                            d.set_node(&index_name, &shard_name, &node_name, node_details.clone()).await.unwrap();
+                                                                            debug!("node state has changed: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_details);
                                                                         }
                                                                     }
                                                                 }
@@ -90,11 +90,11 @@ impl Worker for Overseer {
                                                                 error!("failed to request to server: error={:?}", e);
 
                                                                 // failed to request to server
-                                                                if node_status.state != State::NotReady {
-                                                                    node_status.role = Role::Candidate;
-                                                                    node_status.state = State::NotReady;
-                                                                    d.set_node(&index_name, &shard_name, &node_name, node_status.clone()).await.unwrap();
-                                                                    debug!("node state has changed: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_status);
+                                                                if node_details.state != State::NotReady as i32 {
+                                                                    node_details.role = Role::Candidate as i32;
+                                                                    node_details.state = State::NotReady as i32;
+                                                                    d.set_node(&index_name, &shard_name, &node_name, node_details.clone()).await.unwrap();
+                                                                    debug!("node state has changed: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_details);
                                                                 }
                                                             }
                                                         }
@@ -103,11 +103,11 @@ impl Worker for Overseer {
                                                         error!("failed to request to server: error={:?}", e);
 
                                                         // failed to connect to server
-                                                        if node_status.state != State::Disconnected {
-                                                            node_status.role = Role::Candidate;
-                                                            node_status.state = State::Disconnected;
-                                                            d.set_node(&index_name, &shard_name, &node_name, node_status.clone()).await.unwrap();
-                                                            debug!("node state has changed: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_status);
+                                                        if node_details.state != State::Disconnected as i32 {
+                                                            node_details.role = Role::Candidate as i32;
+                                                            node_details.state = State::Disconnected as i32;
+                                                            d.set_node(&index_name, &shard_name, &node_name, node_details.clone()).await.unwrap();
+                                                            debug!("node state has changed: index_name={}, shard_name={}, node_name={} node_status={:?}", &index_name, &shard_name, &node_name, &node_details);
                                                         }
                                                     }
                                                 }
@@ -128,16 +128,16 @@ impl Worker for Overseer {
                                                     // change candidate nodes to replica nodes if primary node exists
                                                     match d.get_candidate_nodes(&index_name, &shard_name).await {
                                                         Ok(candidates) => {
-                                                            for (node_name, node_status_opt) in candidates {
-                                                                match node_status_opt {
-                                                                    Some(mut node_status) => {
-                                                                        node_status.role = Role::Replica;
-                                                                        match d.set_node(&index_name, &shard_name, &node_name, node_status.clone()).await {
+                                                            for (node_name, node_details) in candidates {
+                                                                match node_details {
+                                                                    Some(mut node_details) => {
+                                                                        node_details.role = Role::Replica as i32;
+                                                                        match d.set_node(&index_name, &shard_name, &node_name, node_details.clone()).await {
                                                                             Ok(_) => {
-                                                                                info!("node has become a replica node: index_name={}, shard_name={}, node_name={}, node_status={:?}", &index_name, &shard_name, &node_name, &node_status);
+                                                                                info!("node has become a replica node: index_name={}, shard_name={}, node_name={}, node_status={:?}", &index_name, &shard_name, &node_name, &node_details);
                                                                             },
                                                                             Err(e) => {
-                                                                                error!("failed to set node status: index_name={}, shard_name={}, node_name={}, node_status={:?}, error={:?}", &index_name, &shard_name, &node_name, &node_status, e);
+                                                                                error!("failed to set node status: index_name={}, shard_name={}, node_name={}, node_status={:?}, error={:?}", &index_name, &shard_name, &node_name, &node_details, e);
                                                                             },
                                                                         };
                                                                     }
@@ -159,16 +159,16 @@ impl Worker for Overseer {
                                                     // change candidate nodes to replica nodes
                                                     match d.get_candidate_nodes(&index_name, &shard_name).await {
                                                         Ok(candidates) => {
-                                                            for (node_name, node_status_opt) in candidates {
-                                                                match node_status_opt {
-                                                                    Some(mut node_status) => {
-                                                                        node_status.role = Role::Replica;
-                                                                        match d.set_node(&index_name, &shard_name, &node_name, node_status.clone()).await {
+                                                            for (node_name, node_details) in candidates {
+                                                                match node_details {
+                                                                    Some(mut node_details) => {
+                                                                        node_details.role = Role::Replica as i32;
+                                                                        match d.set_node(&index_name, &shard_name, &node_name, node_details.clone()).await {
                                                                             Ok(_) => {
-                                                                                info!("node has become a replica node: index_name={}, shard_name={}, node_name={}, node_status={:?}", &index_name, &shard_name, &node_name, &node_status);
+                                                                                info!("node has become a replica node: index_name={}, shard_name={}, node_name={}, node_status={:?}", &index_name, &shard_name, &node_name, &node_details);
                                                                             },
                                                                             Err(e) => {
-                                                                                error!("failed to set node status: index_name={}, shard_name={}, node_name={}, node_status={:?}, error={:?}", &index_name, &shard_name, &node_name, &node_status, e);
+                                                                                error!("failed to set node status: index_name={}, shard_name={}, node_name={}, node_status={:?}, error={:?}", &index_name, &shard_name, &node_name, &node_details, e);
                                                                             },
                                                                         };
                                                                     }
@@ -189,17 +189,17 @@ impl Worker for Overseer {
                                                     // change one of replica nodes to primary node if primary node does not exist
                                                     match d.get_replica_nodes(&index_name, &shard_name).await {
                                                         Ok(replicas) => {
-                                                            for (node_name, node_status_opt) in replicas {
-                                                                match node_status_opt {
-                                                                    Some(mut node_status) => {
-                                                                        node_status.role = Role::Primary;
-                                                                        match d.set_node(&index_name, &shard_name, &node_name, node_status.clone()).await {
+                                                            for (node_name, node_details) in replicas {
+                                                                match node_details {
+                                                                    Some(mut node_details) => {
+                                                                        node_details.role = Role::Primary as i32;
+                                                                        match d.set_node(&index_name, &shard_name, &node_name, node_details.clone()).await {
                                                                             Ok(_) => {
-                                                                                info!("node has become a primary node: index_name={}, shard_name={}, node_name={}, node_status={:?}", &index_name, &shard_name, &node_name, &node_status);
+                                                                                info!("node has become a primary node: index_name={}, shard_name={}, node_name={}, node_status={:?}", &index_name, &shard_name, &node_name, &node_details);
                                                                                 break;
                                                                             },
                                                                             Err(e) => {
-                                                                                error!("failed to set node status: index_name={}, shard_name={}, node_name={}, node_status={:?}, error={:?}", &index_name, &shard_name, &node_name, &node_status, e);
+                                                                                error!("failed to set node status: index_name={}, shard_name={}, node_name={}, node_status={:?}, error={:?}", &index_name, &shard_name, &node_name, &node_details, e);
                                                                             },
                                                                         };
                                                                     }

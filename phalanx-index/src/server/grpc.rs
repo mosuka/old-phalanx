@@ -13,8 +13,8 @@ use tantivy::schema::{Field, FieldType, IndexRecordOption, Schema};
 use tantivy::{Document, Index, IndexWriter, Term};
 use tonic::{Code, Request, Response, Status};
 
-use phalanx_proto::index::index_service_server::IndexService as ProtoIndexService;
-use phalanx_proto::index::{
+use phalanx_proto::phalanx::index_service_server::IndexService as ProtoIndexService;
+use phalanx_proto::phalanx::{
     BulkDeleteReply, BulkDeleteReq, BulkSetReply, BulkSetReq, CommitReply, CommitReq, DeleteReply,
     DeleteReq, GetReply, GetReq, MergeReply, MergeReq, PullReply, PullReq, PushReply, PushReq,
     ReadinessReply, ReadinessReq, RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply,
