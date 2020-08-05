@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
+- Split the discovery package #13 @mosuka
 - Add gRPC server #12 @mosuka
 - Merge overseer into discovery #11 @mosuka
 - Watch nodes #10 @mosuka
