@@ -1,8 +1,26 @@
 syntax = "proto3";
 
-package phalanx_index;
+package phalanx;
 
 option go_package = "pkg/proto";
+
+enum State {
+    NOT_READY = 0;
+    READY = 1;
+    DISCONNECTED = 2;
+}
+
+enum Role {
+    CANDIDATE = 0;
+    PRIMARY = 1;
+    REPLICA = 2;
+}
+
+message NodeDetails {
+    string address = 1;
+    State state = 2;
+    Role role = 3;
+}
 
 service IndexService {
     rpc Readiness (ReadinessReq) returns (ReadinessReply) {}
@@ -18,11 +36,6 @@ service IndexService {
     rpc Pull (PullReq) returns (PullReply) {}
     rpc Schema (SchemaReq) returns (SchemaReply) {}
     rpc Search (SearchReq) returns (SearchReply) {}
-}
-
-enum State {
-    READY = 0;
-    NOT_READY = 1;
 }
 
 message ReadinessReq {}

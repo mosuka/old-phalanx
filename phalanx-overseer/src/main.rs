@@ -12,8 +12,8 @@ use log::*;
 use tokio::signal;
 
 use phalanx_common::log::set_logger;
-use phalanx_discovery::discovery::etcd::{Etcd, TYPE as ETCD_TYPE};
-use phalanx_discovery::discovery::null::{Null as NullDiscovery, TYPE as NULL_TYPE};
+use phalanx_discovery::discovery::etcd::{Etcd as EtcdDiscovery, TYPE as ETCD_TYPE};
+use phalanx_discovery::discovery::nop::{Nop as NopDiscovery, TYPE as NOP_TYPE};
 use phalanx_discovery::discovery::Discovery;
 use phalanx_overseer::overseer::overseer::Overseer;
 use phalanx_overseer::overseer::Worker;
@@ -111,14 +111,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let discovery: Box<dyn Discovery> = match discovery_type {
         ETCD_TYPE => {
             info!("enable etcd");
-            Box::new(Etcd::new(etcd_endpoints, etcd_root))
+            Box::new(EtcdDiscovery::new(etcd_endpoints, etcd_root))
         }
         _ => {
             info!("disable node discovery");
-            Box::new(NullDiscovery::new())
+            Box::new(NopDiscovery::new())
         }
     };
-    if discovery.get_type() == NULL_TYPE {
+    if discovery.get_type() == NOP_TYPE {
         return Err(Box::try_from(IOError::new(
             ErrorKind::Other,
             format!("unsupported discovery type: {}", discovery_type),

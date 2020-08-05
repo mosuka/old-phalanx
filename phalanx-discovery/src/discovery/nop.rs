@@ -4,20 +4,22 @@ use std::error::Error;
 
 use async_trait::async_trait;
 
-use crate::discovery::{Discovery, NodeStatus};
+use phalanx_proto::phalanx::NodeDetails;
 
-pub const TYPE: &str = "null";
+use crate::discovery::Discovery;
 
-pub struct Null {}
+pub const TYPE: &str = "nop";
 
-impl Null {
-    pub fn new() -> Null {
-        Null {}
+pub struct Nop {}
+
+impl Nop {
+    pub fn new() -> Nop {
+        Nop {}
     }
 }
 
 #[async_trait]
-impl Discovery for Null {
+impl Discovery for Nop {
     fn get_type(&self) -> &str {
         TYPE
     }
@@ -37,7 +39,7 @@ impl Discovery for Null {
         &mut self,
         _index_name: &str,
         _shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeStatus>>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<HashMap<String, Option<NodeDetails>>, Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
 
@@ -46,7 +48,7 @@ impl Discovery for Null {
         _index_name: &str,
         _shard_name: &str,
         _node_name: &str,
-    ) -> Result<Option<NodeStatus>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Option<NodeDetails>, Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
 
@@ -55,7 +57,7 @@ impl Discovery for Null {
         _index_name: &str,
         _shard_name: &str,
         _node_name: &str,
-        _node_status: NodeStatus,
+        _node_details: NodeDetails,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         unimplemented!()
     }
@@ -81,7 +83,7 @@ impl Discovery for Null {
         &mut self,
         _index_name: &str,
         _shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeStatus>, RandomState>, Box<dyn Error + Send + Sync>>
+    ) -> Result<HashMap<String, Option<NodeDetails>, RandomState>, Box<dyn Error + Send + Sync>>
     {
         unimplemented!()
     }
@@ -90,7 +92,7 @@ impl Discovery for Null {
         &mut self,
         _index_name: &str,
         _shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeStatus>, RandomState>, Box<dyn Error + Send + Sync>>
+    ) -> Result<HashMap<String, Option<NodeDetails>, RandomState>, Box<dyn Error + Send + Sync>>
     {
         unimplemented!()
     }

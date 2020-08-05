@@ -2,8 +2,8 @@ use std::io::{Error, ErrorKind};
 
 use tonic::transport::Channel;
 
-use phalanx_proto::index::index_service_client::IndexServiceClient;
-use phalanx_proto::index::{ReadinessReq, State};
+use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
+use phalanx_proto::phalanx::{ReadinessReq, State};
 
 #[derive(Clone)]
 pub struct IndexClient {

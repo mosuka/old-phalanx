@@ -13,16 +13,17 @@ use tonic::transport::Server as TonicServer;
 
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd, TYPE as ETCD_DISCOVERY_TYPE};
-use phalanx_discovery::discovery::null::{Null as NullDiscovery, TYPE as NULL_DISCOVERY_TYPE};
-use phalanx_discovery::discovery::{Discovery, NodeStatus, Role, State};
+use phalanx_discovery::discovery::nop::{Nop as NullDiscovery, TYPE as NULL_DISCOVERY_TYPE};
+use phalanx_discovery::discovery::Discovery;
 use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
 };
 use phalanx_index::server::grpc::IndexService;
 use phalanx_index::server::http::handle;
-use phalanx_proto::index::index_service_client::IndexServiceClient;
-use phalanx_proto::index::index_service_server::IndexServiceServer;
+use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
+use phalanx_proto::phalanx::index_service_server::IndexServiceServer;
+use phalanx_proto::phalanx::{NodeDetails, Role, State};
 use phalanx_storage::storage::minio::Minio;
 use phalanx_storage::storage::minio::STORAGE_TYPE as MINIO_STORAGE_TYPE;
 use phalanx_storage::storage::null::Null as NullStorage;
@@ -334,13 +335,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                     None => {
                         // node does not exist
-                        let node_status = NodeStatus {
-                            state: State::NotReady,
-                            role: Role::Candidate,
+                        let node_details = NodeDetails {
                             address: format!("{}:{}", host, grpc_port),
+                            state: State::NotReady as i32,
+                            role: Role::Candidate as i32,
                         };
                         match discovery
-                            .set_node(index_name, shard_name, node_name, node_status)
+                            .set_node(index_name, shard_name, node_name, node_details)
                             .await
                         {
                             Ok(_) => (),
