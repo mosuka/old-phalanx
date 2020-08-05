@@ -9,8 +9,8 @@ use log::*;
 use phalanx_proto::index::index_service_client::IndexServiceClient;
 use phalanx_proto::index::{ReadinessReq, State as ReadinessState};
 
-use crate::discovery::{Discovery, Role, State};
 use crate::overseer::{Message, Worker, WorkerError};
+use phalanx_discovery::discovery::{Discovery, Role, State};
 
 pub struct Overseer {
     sender: Option<Sender<Message>>,
