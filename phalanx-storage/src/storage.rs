@@ -1,5 +1,5 @@
 pub mod minio;
-pub mod null;
+pub mod nop;
 
 use async_trait::async_trait;
 

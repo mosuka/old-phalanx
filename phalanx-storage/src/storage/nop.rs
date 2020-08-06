@@ -3,20 +3,20 @@ use std::error::Error;
 
 use crate::storage::Storage;
 
-pub const STORAGE_TYPE: &str = "null";
+pub const TYPE: &str = "null";
 
-pub struct Null {}
+pub struct Nop {}
 
-impl Null {
-    pub fn new() -> Null {
-        Null {}
+impl Nop {
+    pub fn new() -> Nop {
+        Nop {}
     }
 }
 
 #[async_trait]
-impl Storage for Null {
+impl Storage for Nop {
     fn get_type(&self) -> &str {
-        STORAGE_TYPE
+        TYPE
     }
 
     async fn pull_index(
@@ -24,7 +24,7 @@ impl Storage for Null {
         _cluster: &str,
         _shard: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        unimplemented!()
+        Ok(())
     }
 
     async fn push_index(
@@ -32,6 +32,6 @@ impl Storage for Null {
         _cluster: &str,
         _shard: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        unimplemented!()
+        Ok(())
     }
 }
