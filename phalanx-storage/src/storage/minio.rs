@@ -20,7 +20,7 @@ use walkdir::WalkDir;
 
 use crate::storage::Storage;
 
-pub const STORAGE_TYPE: &str = "minio";
+pub const TYPE: &str = "minio";
 
 pub struct Minio {
     pub client: S3Client,
@@ -228,7 +228,7 @@ impl Minio {
 #[async_trait]
 impl Storage for Minio {
     fn get_type(&self) -> &str {
-        STORAGE_TYPE
+        TYPE
     }
 
     async fn pull_index(

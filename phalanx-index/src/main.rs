@@ -13,7 +13,7 @@ use tonic::transport::Server as TonicServer;
 
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd, TYPE as ETCD_DISCOVERY_TYPE};
-use phalanx_discovery::discovery::nop::{Nop as NullDiscovery, TYPE as NULL_DISCOVERY_TYPE};
+use phalanx_discovery::discovery::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
 use phalanx_discovery::discovery::Discovery;
 use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
@@ -25,8 +25,8 @@ use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::index_service_server::IndexServiceServer;
 use phalanx_proto::phalanx::{NodeDetails, Role, State};
 use phalanx_storage::storage::minio::Minio;
-use phalanx_storage::storage::minio::STORAGE_TYPE as MINIO_STORAGE_TYPE;
-use phalanx_storage::storage::null::Null as NullStorage;
+use phalanx_storage::storage::minio::TYPE as MINIO_STORAGE_TYPE;
+use phalanx_storage::storage::nop::Nop as NopStorage;
 use phalanx_storage::storage::Storage;
 
 #[tokio::main]
@@ -275,7 +275,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         _ => {
             info!("disable object storage");
-            Box::new(NullStorage::new())
+            Box::new(NopStorage::new())
         }
     };
 
@@ -286,7 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
         _ => {
             info!("disable node discovery");
-            Box::new(NullDiscovery::new())
+            Box::new(NopDiscovery::new())
         }
     };
 
@@ -322,7 +322,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("start HTTP server on {}", http_addr);
 
     // add node to cluster
-    if discovery.get_type() != NULL_DISCOVERY_TYPE {
+    if discovery.get_type() != NOP_DISCOVERY_TYPE {
         match discovery.get_node(index_name, shard_name, node_name).await {
             Ok(result) => {
                 match result {

@@ -20,7 +20,7 @@ use phalanx_proto::phalanx::{
     ReadinessReply, ReadinessReq, RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply,
     SearchReq, SetReply, SetReq, State,
 };
-use phalanx_storage::storage::null::STORAGE_TYPE as NULL_STORAGE_TYPE;
+use phalanx_storage::storage::nop::TYPE as NULL_STORAGE_TYPE;
 use phalanx_storage::storage::Storage;
 
 use crate::index::config::IndexConfig;
