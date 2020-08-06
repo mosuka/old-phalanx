@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
+- Update nop storage #16 @mosuka
 - Update Nop discovery #15 @mosuka
 - Protobuf refactoring #14 @mosuka
 - Split the discovery package #13 @mosuka
