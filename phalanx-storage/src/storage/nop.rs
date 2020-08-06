@@ -19,6 +19,14 @@ impl Storage for Nop {
         TYPE
     }
 
+    async fn exist(
+        &self,
+        _cluster: &str,
+        _shard: &str,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        Ok(false)
+    }
+
     async fn pull_index(
         &self,
         _cluster: &str,

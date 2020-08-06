@@ -20,7 +20,6 @@ use phalanx_proto::phalanx::{
     ReadinessReply, ReadinessReq, RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply,
     SearchReq, SetReply, SetReq, State,
 };
-use phalanx_storage::storage::nop::TYPE as NULL_STORAGE_TYPE;
 use phalanx_storage::storage::Storage;
 
 use crate::index::config::IndexConfig;
@@ -58,72 +57,67 @@ impl IndexService {
         shard: &str,
         storage: Box<dyn Storage>,
     ) -> IndexService {
-        // create user schema
-        let schema_content = match fs::read_to_string(&index_config.schema_file) {
-            Ok(content) => content,
-            Err(e) => {
-                error!("failed to read schema file: error = {:?}", e);
-                panic!();
-            }
-        };
-        let schema: Schema = match serde_json::from_str(&schema_content) {
-            Ok(schema) => schema,
-            Err(e) => {
-                error!("failed to parse schema JSON: error = {:?}", e);
-                panic!();
-            }
-        };
-
-        // validate the schema
-        // TODO
-
-        // let index = if index_config.index_dir.is_empty() {
-        //     let dir = RAMDirectory::create();
-        //     match Index::open_or_create(dir, schema) {
-        //         Ok(index) => index,
-        //         Err(e) => {
-        //             error!("failed to open or create ram index: error = {:?}", e);
-        //             panic!();
-        //         }
-        //     }
-        // } else {
-        //     fs::create_dir_all(&index_config.index_dir).unwrap_or_default();
-        //
-        //     // pull index from object storage if it exists.
-        //
-        //     let dir = MmapDirectory::open(&index_config.index_dir).unwrap();
-        //     match Index::open_or_create(dir, schema) {
-        //         Ok(index) => index,
-        //         Err(e) => {
-        //             error!("failed to open or create mmap index: error = {:?}", e);
-        //             panic!();
-        //         }
-        //     }
-        // };
-
         // create index directory
         fs::create_dir_all(&index_config.index_dir).unwrap_or_default();
 
-        // pull index from object storage if it exists.
-        if storage.get_type() != NULL_STORAGE_TYPE {
-            let merge_future = storage.pull_index(cluster, shard);
-            match block_on(merge_future) {
+        // check if the index exists in storage
+        let exist_future = storage.exist(cluster, shard);
+        let exist = match block_on(exist_future) {
+            Ok(exist) => exist,
+            Err(e) => {
+                error!("failed to check index in object storage: error = {:?}", e);
+                panic!()
+            }
+        };
+
+        // pull index if the index exists in storage
+        if exist {
+            let pull_index_future = storage.pull_index(cluster, shard);
+            match block_on(pull_index_future) {
                 Ok(_) => (),
                 Err(e) => {
                     error!("failed to pull index from object storage: error = {:?}", e);
+                    panic!()
                 }
             };
         }
 
         let dir = MmapDirectory::open(&index_config.index_dir).unwrap();
-        let index = match Index::open_or_create(dir, schema) {
-            Ok(index) => index,
-            Err(e) => {
-                error!("failed to open or create mmap index: error = {:?}", e);
-                panic!();
+        let index = if Index::exists(&dir) {
+            // open index if the index exists in local file system
+            match Index::open(dir) {
+                Ok(index) => index,
+                Err(e) => {
+                    error!("failed to open mmap index: error = {:?}", e);
+                    panic!();
+                }
+            }
+        } else {
+            // create index if the index doesn't exist in local file system
+            let schema_content = match fs::read_to_string(&index_config.schema_file) {
+                Ok(content) => content,
+                Err(e) => {
+                    error!("failed to read schema file: error = {:?}", e);
+                    panic!();
+                }
+            };
+            let schema: Schema = match serde_json::from_str(&schema_content) {
+                Ok(schema) => schema,
+                Err(e) => {
+                    error!("failed to parse schema JSON: error = {:?}", e);
+                    panic!();
+                }
+            };
+            match Index::create(dir, schema) {
+                Ok(index) => index,
+                Err(e) => {
+                    error!("failed to create mmap index: error = {:?}", e);
+                    panic!();
+                }
             }
         };
 
+        // initialize tokenizers
         if !index_config.tokenizer_file.is_empty() {
             let tokenizer_content = match fs::read_to_string(&index_config.tokenizer_file) {
                 Ok(content) => content,
@@ -136,6 +130,7 @@ impl IndexService {
             tokenizer_initializer.configure(index.tokenizers(), tokenizer_content.as_str());
         }
 
+        // create index writer
         let index_writer =
             match if index_config.indexer_threads > 0 && index_config.indexer_memory_size > 0 {
                 index.writer_with_num_threads(
@@ -151,7 +146,6 @@ impl IndexService {
                     panic!();
                 }
             };
-
         index_writer.set_merge_policy(Box::new(LogMergePolicy::default()));
 
         IndexService {
@@ -521,12 +515,6 @@ impl ProtoIndexService for IndexService {
         REQUEST_COUNTER.with_label_values(&["push"]).inc();
         let timer = REQUEST_HISTOGRAM.with_label_values(&["push"]).start_timer();
 
-        if self.storage.get_type() == NULL_STORAGE_TYPE {
-            timer.observe_duration();
-
-            return Err(Status::new(Code::Unavailable, "storage type is null"));
-        }
-
         match self.storage.push_index(&self.cluster, &self.shard).await {
             Ok(_) => (),
             Err(e) => {
@@ -549,12 +537,6 @@ impl ProtoIndexService for IndexService {
     async fn pull(&self, _request: Request<PullReq>) -> Result<Response<PullReply>, Status> {
         REQUEST_COUNTER.with_label_values(&["pull"]).inc();
         let timer = REQUEST_HISTOGRAM.with_label_values(&["pull"]).start_timer();
-
-        if self.storage.get_type() == NULL_STORAGE_TYPE {
-            timer.observe_duration();
-
-            return Err(Status::new(Code::Unavailable, "storage type is null"));
-        }
 
         match self.storage.pull_index(&self.cluster, &self.shard).await {
             Ok(_) => (),

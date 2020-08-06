@@ -112,11 +112,16 @@ impl Minio {
             Ok(output) => {
                 let mut keys = Vec::new();
 
-                for content in output.contents.unwrap() {
-                    let k = content.key.unwrap();
-                    // cluster1/shard1/meta.json -> meta.json
-                    let p = Path::new(&k).strip_prefix(key).unwrap();
-                    keys.push(String::from(p.to_str().unwrap()));
+                match output.contents {
+                    Some(contents) => {
+                        for content in contents {
+                            let k = content.key.unwrap();
+                            // cluster1/shard1/meta.json -> meta.json
+                            let p = Path::new(&k).strip_prefix(key).unwrap();
+                            keys.push(String::from(p.to_str().unwrap()));
+                        }
+                    }
+                    None => (),
                 }
 
                 keys
@@ -229,6 +234,25 @@ impl Minio {
 impl Storage for Minio {
     fn get_type(&self) -> &str {
         TYPE
+    }
+
+    async fn exist(
+        &self,
+        cluster: &str,
+        shard: &str,
+    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        let key = format!("{}/{}", cluster, shard);
+
+        match self.list(&key).await {
+            Ok(keys) => {
+                if keys.len() > 0 {
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 
     async fn pull_index(
