@@ -25,14 +25,14 @@ impl Discovery for Nop {
     }
 
     async fn get_indices(&mut self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        unimplemented!()
+        Ok(Vec::new())
     }
 
     async fn get_shards(
         &mut self,
         _index_name: &str,
     ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        unimplemented!()
+        Ok(Vec::new())
     }
 
     async fn get_nodes(
@@ -40,7 +40,7 @@ impl Discovery for Nop {
         _index_name: &str,
         _shard_name: &str,
     ) -> Result<HashMap<String, Option<NodeDetails>>, Box<dyn Error + Send + Sync>> {
-        unimplemented!()
+        Ok(HashMap::new())
     }
 
     async fn get_node(
@@ -49,7 +49,7 @@ impl Discovery for Nop {
         _shard_name: &str,
         _node_name: &str,
     ) -> Result<Option<NodeDetails>, Box<dyn Error + Send + Sync>> {
-        unimplemented!()
+        Ok(None)
     }
 
     async fn set_node(
@@ -59,7 +59,7 @@ impl Discovery for Nop {
         _node_name: &str,
         _node_details: NodeDetails,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        unimplemented!()
+        Ok(())
     }
 
     async fn delete_node(
@@ -68,7 +68,7 @@ impl Discovery for Nop {
         _shard_name: &str,
         _node_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        unimplemented!()
+        Ok(())
     }
 
     async fn get_primary_node(
@@ -76,7 +76,7 @@ impl Discovery for Nop {
         _index_name: &str,
         _shard_name: &str,
     ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
-        unimplemented!()
+        Ok(None)
     }
 
     async fn get_replica_nodes(
@@ -85,7 +85,7 @@ impl Discovery for Nop {
         _shard_name: &str,
     ) -> Result<HashMap<String, Option<NodeDetails>, RandomState>, Box<dyn Error + Send + Sync>>
     {
-        unimplemented!()
+        Ok(HashMap::new())
     }
 
     async fn get_candidate_nodes(
@@ -94,6 +94,6 @@ impl Discovery for Nop {
         _shard_name: &str,
     ) -> Result<HashMap<String, Option<NodeDetails>, RandomState>, Box<dyn Error + Send + Sync>>
     {
-        unimplemented!()
+        Ok(HashMap::new())
     }
 }
