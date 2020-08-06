@@ -100,17 +100,17 @@ $ phalanx-index --host=0.0.0.0 \
 Invoking RPCs example:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/index.proto -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Health
-$ grpcurl -proto phalanx-proto/proto/index.proto -d '{ "id": "1" }' -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Get
-$ grpcurl -proto phalanx-proto/proto/index.proto -d "$(jq -c '. | {doc:@json}' ./examples/doc_1.json)" -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Set
-$ grpcurl -proto phalanx-proto/proto/index.proto -d '{ "id": "1" }' -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Delete
-$ grpcurl -proto phalanx-proto/proto/index.proto -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Commit
-$ grpcurl -proto phalanx-proto/proto/index.proto -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Rollback
-$ grpcurl -proto phalanx-proto/proto/index.proto -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Merge
-$ grpcurl -proto phalanx-proto/proto/index.proto -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Schema
-$ grpcurl -proto phalanx-proto/proto/index.proto -d "$(jq -c '. | {doc:. | @json}' ./examples/bulk_put.jsonl | jq -s -c '{ requests:.}')" -plaintext 0.0.0.0:5000 phalanx_index.IndexService/BulkSet
-$ grpcurl -proto phalanx-proto/proto/index.proto -d "$(jq -c -s '{ requests:.}' ./examples/bulk_delete.jsonl)" -plaintext 0.0.0.0:5000 phalanx_index.IndexService/BulkDelete
-$ grpcurl -proto phalanx-proto/proto/index.proto -d '{ "query": "rust", "from": 0, "limit": 10, "exclude_count": false, "exclude_docs": false, "facet_field": "category", "facet_prefixes": ["/category/search", "/language"] }' -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Search
-$ grpcurl -proto phalanx-proto/proto/index.proto -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Push
-$ grpcurl -proto phalanx-proto/proto/index.proto -plaintext 0.0.0.0:5000 phalanx_index.IndexService/Pull
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Health
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "id": "1" }' -plaintext 0.0.0.0:5000 phalanx.IndexService/Get
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | {doc:@json}' ./examples/doc_1.json)" -plaintext 0.0.0.0:5000 phalanx.IndexService/Set
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "id": "1" }' -plaintext 0.0.0.0:5000 phalanx.IndexService/Delete
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Commit
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Rollback
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Merge
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Schema
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | {doc:. | @json}' ./examples/bulk_put.jsonl | jq -s -c '{ requests:.}')" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkSet
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c -s '{ requests:.}' ./examples/bulk_delete.jsonl)" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkDelete
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "query": "rust", "from": 0, "limit": 10, "exclude_count": false, "exclude_docs": false, "facet_field": "category", "facet_prefixes": ["/category/search", "/language"] }' -plaintext 0.0.0.0:5000 phalanx.IndexService/Search
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Push
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Pull
 ```
