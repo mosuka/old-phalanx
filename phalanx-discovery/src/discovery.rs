@@ -4,11 +4,12 @@ pub mod nop;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
+use dyn_clone::DynClone;
 
 use phalanx_proto::phalanx::NodeDetails;
 
 #[async_trait]
-pub trait Discovery: Send + Sync + 'static {
+pub trait Discovery: DynClone + Send + Sync + 'static {
     fn get_type(&self) -> &str;
 
     async fn get_indices(

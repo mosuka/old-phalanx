@@ -3,13 +3,15 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 
+use async_std::task::block_on;
 use async_trait::async_trait;
 use log::*;
 use rusoto_core::credential::StaticProvider;
 use rusoto_core::request::HttpClient;
 use rusoto_core::{ByteStream, Region};
 use rusoto_s3::{
-    DeleteObjectRequest, GetObjectRequest, ListObjectsRequest, PutObjectRequest, S3Client, S3,
+    CreateBucketConfiguration, CreateBucketRequest, DeleteObjectRequest, GetObjectRequest,
+    ListObjectsRequest, PutObjectRequest, S3Client, S3,
 };
 use serde_json::Value;
 use tantivy::Index;
@@ -45,6 +47,20 @@ impl Minio {
         };
 
         let client = S3Client::new_with(HttpClient::new().unwrap(), credentials, region);
+
+        let future = client.create_bucket(CreateBucketRequest {
+            bucket: bucket.to_string(),
+            create_bucket_configuration: Some(CreateBucketConfiguration {
+                location_constraint: Some("us-east-2".to_string()),
+            }),
+            ..Default::default()
+        });
+        match block_on(future) {
+            Ok(_output) => (),
+            Err(e) => {
+                warn!("failed to create bucket: error = {:?}", e);
+            }
+        };
 
         Minio {
             client,

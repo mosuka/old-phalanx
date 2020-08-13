@@ -13,7 +13,7 @@ use tonic::transport::Server as TonicServer;
 
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd, TYPE as ETCD_DISCOVERY_TYPE};
-use phalanx_discovery::discovery::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
+use phalanx_discovery::discovery::nop::Nop as NopDiscovery;
 use phalanx_discovery::discovery::Discovery;
 use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
@@ -263,31 +263,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let minio_bucket = matches.value_of("MINIO_BUCKET").unwrap();
 
     let storage: Box<dyn Storage> = match storage_type {
-        MINIO_STORAGE_TYPE => {
-            info!("enable MinIO");
-            Box::new(Minio::new(
-                minio_access_key,
-                minio_secret_key,
-                minio_endpoint,
-                minio_bucket,
-                index_directory,
-            ))
-        }
-        _ => {
-            info!("disable object storage");
-            Box::new(NopStorage::new())
-        }
+        MINIO_STORAGE_TYPE => Box::new(Minio::new(
+            minio_access_key,
+            minio_secret_key,
+            minio_endpoint,
+            minio_bucket,
+            index_directory,
+        )),
+        _ => Box::new(NopStorage::new()),
     };
 
     let mut discovery: Box<dyn Discovery> = match discovery_type {
-        ETCD_DISCOVERY_TYPE => {
-            info!("enable etcd");
-            Box::new(Etcd::new(etcd_endpoints, etcd_root))
-        }
-        _ => {
-            info!("disable node discovery");
-            Box::new(NopDiscovery::new())
-        }
+        ETCD_DISCOVERY_TYPE => Box::new(Etcd::new(etcd_endpoints, etcd_root)),
+        _ => Box::new(NopDiscovery::new()),
     };
 
     let mut index_config = IndexConfig::new();
@@ -322,37 +310,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     info!("start HTTP server on {}", http_addr);
 
     // add node to cluster
-    if discovery.get_type() != NOP_DISCOVERY_TYPE {
-        match discovery.get_node(index_name, shard_name, node_name).await {
-            Ok(result) => {
-                match result {
-                    Some(node_status) => {
-                        // node exists
-                        info!(
+    match discovery.get_node(index_name, shard_name, node_name).await {
+        Ok(result) => {
+            match result {
+                Some(node_status) => {
+                    // node exists
+                    info!(
                             "node is already registered: index_name={:?}, shard_name={:?}, node_name={:?}, node_status={:?}",
                             &index_name, shard_name, node_name, &node_status
                         );
-                    }
-                    None => {
-                        // node does not exist
-                        let node_details = NodeDetails {
-                            address: format!("{}:{}", host, grpc_port),
-                            state: State::NotReady as i32,
-                            role: Role::Candidate as i32,
-                        };
-                        match discovery
-                            .set_node(index_name, shard_name, node_name, node_details)
-                            .await
-                        {
-                            Ok(_) => (),
-                            Err(e) => return Err(e),
-                        };
-                    }
-                };
-            }
-            Err(e) => return Err(e),
-        };
-    }
+                }
+                None => {
+                    // node does not exist
+                    let node_details = NodeDetails {
+                        address: format!("{}:{}", host, grpc_port),
+                        state: State::NotReady as i32,
+                        role: Role::Candidate as i32,
+                    };
+                    match discovery
+                        .set_node(index_name, shard_name, node_name, node_details)
+                        .await
+                    {
+                        Ok(_) => (),
+                        Err(e) => return Err(e),
+                    };
+                }
+            };
+        }
+        Err(e) => return Err(e),
+    };
 
     signal::ctrl_c().await?;
     info!("ctrl-c received");
