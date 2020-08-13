@@ -149,7 +149,7 @@ pub mod phalanx {
             let node_details: NodeDetails = serde_json::from_str(json_str).unwrap();
 
             assert_eq!(node_details.address, "0.0.0.0:5001");
-            assert_eq!(node_details.state, State::NotReady as i32);
+            assert_eq!(node_details.state, State::Disconnected as i32);
             assert_eq!(node_details.role, Role::Candidate as i32);
         }
 
@@ -157,7 +157,7 @@ pub mod phalanx {
         fn test_serialize() {
             let node_details = NodeDetails {
                 address: "0.0.0.0:5001".to_string(),
-                state: State::NotReady as i32,
+                state: State::Disconnected as i32,
                 role: Role::Candidate as i32,
             };
             let json_str = serde_json::to_string(&node_details).unwrap();

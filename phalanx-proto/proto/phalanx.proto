@@ -5,9 +5,9 @@ package phalanx;
 option go_package = "pkg/proto";
 
 enum State {
-    NOT_READY = 0;
-    READY = 1;
-    DISCONNECTED = 2;
+    DISCONNECTED = 0;
+    NOT_READY = 1;
+    READY = 2;
 }
 
 enum Role {

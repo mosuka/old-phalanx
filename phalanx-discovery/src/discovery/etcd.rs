@@ -13,6 +13,7 @@ use crate::discovery::Discovery;
 
 pub const TYPE: &str = "etcd";
 
+#[derive(Clone)]
 pub struct Etcd {
     pub client: Client,
     pub root: String,

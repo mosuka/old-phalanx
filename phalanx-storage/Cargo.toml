@@ -5,6 +5,7 @@ authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+async-std = "1.6.1"
 async-trait = "0.1.36"
 tokio = { version = "0.2.21", features = [ "full" ] }
 serde_json = "1.0.51"

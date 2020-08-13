@@ -10,6 +10,7 @@ use crate::discovery::Discovery;
 
 pub const TYPE: &str = "nop";
 
+#[derive(Clone)]
 pub struct Nop {}
 
 impl Nop {
