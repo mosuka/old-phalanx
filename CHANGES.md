@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
+- Add example #19 @mosuka
 - Create a bucket at startup #18 @mosuka
 - Update storage #17 @mosuka
 - Update nop storage #16 @mosuka
