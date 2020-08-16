@@ -313,11 +313,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match discovery.get_node(index_name, shard_name, node_name).await {
         Ok(result) => {
             match result {
-                Some(node_status) => {
+                Some(node_details) => {
                     // node exists
                     info!(
-                            "node is already registered: index_name={:?}, shard_name={:?}, node_name={:?}, node_status={:?}",
-                            &index_name, shard_name, node_name, &node_status
+                            "node is already registered: index_name={:?}, shard_name={:?}, node_name={:?}, node_details={:?}",
+                            &index_name, shard_name, node_name, &node_details
                         );
                 }
                 None => {
