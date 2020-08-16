@@ -283,7 +283,7 @@ impl Storage for Minio {
             Ok(segments) => segments,
             Err(e) => return Err(e),
         };
-        // add index files
+        // add metadata files
         object_names.push(String::from(".managed.json"));
         object_names.push(String::from("meta.json"));
 
@@ -357,7 +357,7 @@ impl Storage for Minio {
                 index_files.push(segment_file);
             }
         }
-        // add index files
+        // add metadata files
         index_files.push(String::from(".managed.json"));
         index_files.push(String::from("meta.json"));
 
