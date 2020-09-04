@@ -12,8 +12,8 @@ enum State {
 
 enum Role {
     CANDIDATE = 0;
-    PRIMARY = 1;
-    REPLICA = 2;
+    REPLICA = 1;
+    PRIMARY = 2;
 }
 
 message NodeDetails {

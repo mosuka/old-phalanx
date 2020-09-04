@@ -4,12 +4,11 @@ pub mod nop;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use dyn_clone::DynClone;
 
 use phalanx_proto::phalanx::NodeDetails;
 
 #[async_trait]
-pub trait Discovery: DynClone + Send + Sync + 'static {
+pub trait Discovery: Send + Sync + 'static {
     fn get_type(&self) -> &str;
 
     async fn get_indices(
@@ -66,4 +65,15 @@ pub trait Discovery: DynClone + Send + Sync + 'static {
         index_name: &str,
         shard_name: &str,
     ) -> Result<HashMap<String, Option<NodeDetails>>, Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn start_watch(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn stop_watch(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn start_healthcheck(
+        &mut self,
+        interval: u64,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn stop_healthcheck(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }

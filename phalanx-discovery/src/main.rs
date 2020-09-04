@@ -15,9 +15,7 @@ use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd as EtcdDiscovery, TYPE as ETCD_TYPE};
 use phalanx_discovery::discovery::nop::{Nop as NopDiscovery, TYPE as NOP_TYPE};
 use phalanx_discovery::discovery::Discovery;
-use phalanx_overseer::overseer::overseer::Overseer;
-use phalanx_overseer::overseer::Worker;
-use phalanx_overseer::server::http::handle;
+use phalanx_discovery::server::http::handle;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -108,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .parse::<u64>()
         .unwrap();
 
-    let discovery: Box<dyn Discovery> = match discovery_type {
+    let mut discovery: Box<dyn Discovery> = match discovery_type {
         ETCD_TYPE => {
             info!("enable etcd");
             Box::new(EtcdDiscovery::new(etcd_endpoints, etcd_root))
@@ -134,13 +132,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
     info!("start HTTP server on {}", http_addr);
 
-    let mut overseer = Overseer::new(discovery, watch_interval);
-    overseer.run();
+    match discovery.start_watch().await {
+        Ok(_) => (),
+        Err(e) => return Err(e),
+    };
+
+    match discovery.start_healthcheck(watch_interval).await {
+        Ok(_) => (),
+        Err(e) => return Err(e),
+    };
 
     signal::ctrl_c().await?;
     info!("ctrl-c received");
 
-    overseer.stop().expect("stopping overseer failed");
+    match discovery.stop_watch().await {
+        Ok(_) => (),
+        Err(e) => return Err(e),
+    };
+
+    match discovery.stop_healthcheck().await {
+        Ok(_) => (),
+        Err(e) => return Err(e),
+    };
 
     Ok(())
 }
