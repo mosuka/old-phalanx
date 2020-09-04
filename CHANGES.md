@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
+- Update the watch mechanism #20 @mosuka
 - Add example #19 @mosuka
 - Create a bucket at startup #18 @mosuka
 - Update storage #17 @mosuka
