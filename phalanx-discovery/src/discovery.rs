@@ -1,30 +1,29 @@
 pub mod etcd;
 pub mod nop;
 
-use std::collections::HashMap;
-
 use async_trait::async_trait;
+use prometheus::GaugeVec;
 
 use phalanx_proto::phalanx::NodeDetails;
+
+lazy_static! {
+    static ref NODE_STATE_GAUGE: GaugeVec = register_gauge_vec!(
+        "phalanx_discovery_node_state",
+        "Node state.",
+        &["index", "shard", "node"]
+    )
+    .unwrap();
+    static ref NODE_ROLE_GAUGE: GaugeVec = register_gauge_vec!(
+        "phalanx_discovery_node_role",
+        "Node role.",
+        &["index", "shard", "node"]
+    )
+    .unwrap();
+}
 
 #[async_trait]
 pub trait Discovery: Send + Sync + 'static {
     fn get_type(&self) -> &str;
-
-    async fn get_indices(
-        &mut self,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>>;
-
-    async fn get_shards(
-        &mut self,
-        index_name: &str,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>>;
-
-    async fn get_nodes(
-        &mut self,
-        index_name: &str,
-        shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeDetails>>, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn get_node(
         &mut self,
@@ -47,24 +46,6 @@ pub trait Discovery: Send + Sync + 'static {
         shard_name: &str,
         node_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
-    async fn get_primary_node(
-        &mut self,
-        index_name: &str,
-        shard_name: &str,
-    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>>;
-
-    async fn get_replica_nodes(
-        &mut self,
-        index_name: &str,
-        shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeDetails>>, Box<dyn std::error::Error + Send + Sync>>;
-
-    async fn get_candidate_nodes(
-        &mut self,
-        index_name: &str,
-        shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeDetails>>, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn start_watch(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
