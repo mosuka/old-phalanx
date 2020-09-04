@@ -10,7 +10,6 @@ use crate::discovery::Discovery;
 
 pub const TYPE: &str = "nop";
 
-#[derive(Clone)]
 pub struct Nop {}
 
 impl Nop {
@@ -96,5 +95,24 @@ impl Discovery for Nop {
     ) -> Result<HashMap<String, Option<NodeDetails>, RandomState>, Box<dyn Error + Send + Sync>>
     {
         Ok(HashMap::new())
+    }
+
+    async fn start_watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn stop_watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn start_healthcheck(
+        &mut self,
+        _interval: u64,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn stop_healthcheck(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
     }
 }

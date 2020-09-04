@@ -324,7 +324,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     // node does not exist
                     let node_details = NodeDetails {
                         address: format!("{}:{}", host, grpc_port),
-                        state: State::NotReady as i32,
+                        state: State::Disconnected as i32,
                         role: Role::Candidate as i32,
                     };
                     match discovery
