@@ -1,5 +1,3 @@
-use std::collections::hash_map::RandomState;
-use std::collections::HashMap;
 use std::error::Error;
 
 use async_trait::async_trait;
@@ -22,25 +20,6 @@ impl Nop {
 impl Discovery for Nop {
     fn get_type(&self) -> &str {
         TYPE
-    }
-
-    async fn get_indices(&mut self) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        Ok(Vec::new())
-    }
-
-    async fn get_shards(
-        &mut self,
-        _index_name: &str,
-    ) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
-        Ok(Vec::new())
-    }
-
-    async fn get_nodes(
-        &mut self,
-        _index_name: &str,
-        _shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeDetails>>, Box<dyn Error + Send + Sync>> {
-        Ok(HashMap::new())
     }
 
     async fn get_node(
@@ -69,32 +48,6 @@ impl Discovery for Nop {
         _node_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
-    }
-
-    async fn get_primary_node(
-        &mut self,
-        _index_name: &str,
-        _shard_name: &str,
-    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
-        Ok(None)
-    }
-
-    async fn get_replica_nodes(
-        &mut self,
-        _index_name: &str,
-        _shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeDetails>, RandomState>, Box<dyn Error + Send + Sync>>
-    {
-        Ok(HashMap::new())
-    }
-
-    async fn get_candidate_nodes(
-        &mut self,
-        _index_name: &str,
-        _shard_name: &str,
-    ) -> Result<HashMap<String, Option<NodeDetails>, RandomState>, Box<dyn Error + Send + Sync>>
-    {
-        Ok(HashMap::new())
     }
 
     async fn start_watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
