@@ -4,4 +4,3 @@ extern crate lazy_static;
 extern crate prometheus;
 
 pub mod discovery;
-pub mod server;

@@ -1,24 +1,19 @@
 [package]
-name = "phalanx-discovery"
+name = "phalanx-overseer"
 version = "0.1.0"
 authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
 edition = "2018"
 
+[[bin]]
+name = "phalanx-overseer"
+path = "src/main.rs"
+
 [dependencies]
-async-std = "1.6"
-async-trait = "0.1"
-etcd-client = "0.5"
 clap = "2.33"
-crossbeam-channel = "0.4"
-futures-util = "0.3"
 hyper = "0.13"
-lazy_static = "1.4"
 log = "0.4"
 prometheus = "0.10"
-regex = "1.3"
-serde_json = "1.0"
 tokio = { version = "0.2", features = [ "full" ] }
-tonic = "0.3"
 
 phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
-phalanx-proto = { version = "0.1.0", path = "../phalanx-proto" }
+phalanx-discovery = { version = "0.1.0", path = "../phalanx-discovery" }

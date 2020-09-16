@@ -15,7 +15,7 @@ use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd as EtcdDiscovery, TYPE as ETCD_TYPE};
 use phalanx_discovery::discovery::nop::{Nop as NopDiscovery, TYPE as NOP_TYPE};
 use phalanx_discovery::discovery::Discovery;
-use phalanx_discovery::server::http::handle;
+use phalanx_overseer::server::http::handle;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -132,12 +132,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
     info!("start HTTP server on {}", http_addr);
 
-    match discovery.start_watch().await {
+    match discovery.watch().await {
         Ok(_) => (),
         Err(e) => return Err(e),
     };
 
-    match discovery.start_healthcheck(watch_interval).await {
+    match discovery.start_health_check(watch_interval).await {
         Ok(_) => (),
         Err(e) => return Err(e),
     };
@@ -145,12 +145,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     signal::ctrl_c().await?;
     info!("ctrl-c received");
 
-    match discovery.stop_watch().await {
+    match discovery.unwatch().await {
         Ok(_) => (),
         Err(e) => return Err(e),
     };
 
-    match discovery.stop_healthcheck().await {
+    match discovery.stop_health_check().await {
         Ok(_) => (),
         Err(e) => return Err(e),
     };

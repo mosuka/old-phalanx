@@ -50,22 +50,22 @@ impl Discovery for Nop {
         Ok(())
     }
 
-    async fn start_watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
-    async fn stop_watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn unwatch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
-    async fn start_healthcheck(
+    async fn start_health_check(
         &mut self,
         _interval: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
-    async fn stop_healthcheck(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn stop_health_check(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 }
