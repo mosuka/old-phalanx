@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
+- Add overseer #23 @mosuka
 - Upgrade dependencies #22 @mosuka
 - Add metrics #21 @mosuka
 - Update the watch mechanism #20 @mosuka
