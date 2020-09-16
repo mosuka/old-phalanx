@@ -25,7 +25,7 @@ pub struct Etcd {
     pub nodes: Arc<Mutex<HashMap<String, Option<NodeDetails>>>>,
     pub watcher: Watcher,
     pub watch_stream: Arc<Mutex<WatchStream>>,
-    pub stop_healthcheck: Arc<AtomicBool>,
+    pub stop_health_check_thread: Arc<AtomicBool>,
 }
 
 impl Etcd {
@@ -55,7 +55,7 @@ impl Etcd {
             nodes: Arc::new(Mutex::new(HashMap::new())),
             watcher,
             watch_stream: Arc::new(Mutex::new(watch_stream)),
-            stop_healthcheck: Arc::new(AtomicBool::new(false)),
+            stop_health_check_thread: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -115,13 +115,15 @@ impl Discovery for Etcd {
         }
     }
 
-    async fn start_watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let watch_stream = Arc::clone(&self.watch_stream);
         let nodes = Arc::clone(&self.nodes);
         let root = self.root.clone();
         let mut client = self.client.clone();
 
         tokio::spawn(async move {
+            info!("start the watch thread");
+
             let re_str = if root.is_empty() {
                 "^(/[^/]+/[^/]+)".to_string()
             } else {
@@ -129,7 +131,7 @@ impl Discovery for Etcd {
             };
             let re = Regex::new(&re_str).unwrap();
 
-            // init node list
+            // initialize a local node cache
             let key = format!("{}/", &root);
             match client
                 .get(key.clone(), Some(GetOptions::new().with_prefix()))
@@ -202,7 +204,7 @@ impl Discovery for Etcd {
                         Some(resp) => {
                             // receive events watching has cancelled
                             if resp.canceled() {
-                                info!("watch canceled");
+                                info!("a request to stop the watch thread has been received");
                                 break;
                             }
 
@@ -237,7 +239,7 @@ impl Discovery for Etcd {
                                         }
                                     };
 
-                                    // update local node list
+                                    // update local node cache
                                     let mut nodes = nodes.lock().await;
                                     match event.event_type() {
                                         EventType::Put => {
@@ -484,14 +486,14 @@ impl Discovery for Etcd {
                     }
                 };
             }
-        });
 
-        info!("watch thread had started");
+            info!("exit the watch thread");
+        });
 
         Ok(())
     }
 
-    async fn stop_watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn unwatch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         match self.watcher.cancel().await {
             Ok(_) => {
                 sleep(Duration::from_secs(1));
@@ -502,18 +504,20 @@ impl Discovery for Etcd {
         Ok(())
     }
 
-    async fn start_healthcheck(
+    async fn start_health_check(
         &mut self,
         interval: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let stop_healthcheck = Arc::clone(&self.stop_healthcheck);
+        let stop_healthcheck = Arc::clone(&self.stop_health_check_thread);
         let nodes = Arc::clone(&self.nodes);
         let mut client = self.client.clone();
 
         tokio::spawn(async move {
+            info!("start a health check thread");
+
             loop {
                 if stop_healthcheck.load(Ordering::Relaxed) {
-                    info!("stop health check thread");
+                    info!("a request to stop the health check thread has been received");
                     break;
                 } else {
                     let nodes = nodes.lock().await;
@@ -639,15 +643,15 @@ impl Discovery for Etcd {
 
                 sleep(Duration::from_millis(interval));
             }
-        });
 
-        info!("health-check thread had started");
+            info!("exit the health check thread");
+        });
 
         Ok(())
     }
 
-    async fn stop_healthcheck(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.stop_healthcheck.store(true, Ordering::Relaxed);
+    async fn stop_health_check(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        self.stop_health_check_thread.store(true, Ordering::Relaxed);
         sleep(Duration::from_secs(1));
 
         Ok(())

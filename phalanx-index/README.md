@@ -112,5 +112,7 @@ $ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | {doc:. | @js
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c -s '{ requests:.}' ./examples/bulk_delete.jsonl)" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkDelete
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "query": "rust", "from": 0, "limit": 10, "exclude_count": false, "exclude_docs": false, "facet_field": "category", "facet_prefixes": ["/category/search", "/language"] }' -plaintext 0.0.0.0:5000 phalanx.IndexService/Search
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Push
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Pull
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5001 phalanx.IndexService/Pull
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5002 phalanx.IndexService/Pull
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5003 phalanx.IndexService/Pull
 ```
