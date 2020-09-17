@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
+use std::io::{Error as IOError, ErrorKind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::sleep;
@@ -23,28 +24,21 @@ pub struct Etcd {
     pub client: Client,
     pub root: String,
     pub nodes: Arc<Mutex<HashMap<String, Option<NodeDetails>>>>,
-    pub watcher: Watcher,
-    pub watch_stream: Arc<Mutex<WatchStream>>,
+    pub watcher: Option<Arc<Mutex<Watcher>>>,
+    pub watch_stream: Option<Arc<Mutex<WatchStream>>>,
     pub stop_health_check_thread: Arc<AtomicBool>,
+    pub watch_thread_running: Arc<AtomicBool>,
+    pub health_check_thread_running: Arc<AtomicBool>,
 }
 
 impl Etcd {
     pub fn new(endpoints: Vec<&str>, root: &str) -> Etcd {
         let conn_future = Client::connect(endpoints, None);
 
-        let mut client = match block_on(conn_future) {
+        let client = match block_on(conn_future) {
             Ok(client) => client,
             Err(e) => {
                 error!("failed to create etcd client: error = {:?}", e);
-                panic!();
-            }
-        };
-
-        let watch_future = client.watch(root.clone(), Some(WatchOptions::new().with_prefix()));
-        let (watcher, watch_stream) = match block_on(watch_future) {
-            Ok((watcher, watch_stream)) => (watcher, watch_stream),
-            Err(e) => {
-                error!("failed to etcd watcher: error = {:?}", e);
                 panic!();
             }
         };
@@ -53,9 +47,11 @@ impl Etcd {
             client,
             root: root.to_string(),
             nodes: Arc::new(Mutex::new(HashMap::new())),
-            watcher,
-            watch_stream: Arc::new(Mutex::new(watch_stream)),
+            watcher: None,
+            watch_stream: None,
             stop_health_check_thread: Arc::new(AtomicBool::new(false)),
+            watch_thread_running: Arc::new(AtomicBool::new(false)),
+            health_check_thread_running: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -116,13 +112,48 @@ impl Discovery for Etcd {
     }
 
     async fn watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let watch_stream = Arc::clone(&self.watch_stream);
+        let watch_thread_running = Arc::clone(&self.watch_thread_running);
         let nodes = Arc::clone(&self.nodes);
         let root = self.root.clone();
         let mut client = self.client.clone();
 
+        if self.watch_thread_running.load(Ordering::Relaxed) {
+            warn!("watch is running in another thread");
+            return Err(Box::new(IOError::new(
+                ErrorKind::Other,
+                "watch is running in another thread",
+            )));
+        }
+
+        match self
+            .client
+            .watch(self.root.clone(), Some(WatchOptions::new().with_prefix()))
+            .await
+        {
+            Ok((watcher, watch_stream)) => {
+                self.watcher = Some(Arc::new(Mutex::new(watcher)));
+                self.watch_stream = Some(Arc::new(Mutex::new(watch_stream)));
+            }
+            Err(e) => {
+                error!("failed to etcd watcher: error = {:?}", e);
+                return Err(Box::new(IOError::new(
+                    ErrorKind::Other,
+                    format!("failed to etcd watcher: error = {:?}", e),
+                )));
+            }
+        };
+
+        let watch_stream = match &self.watch_stream {
+            Some(watch_stream) => Arc::clone(&watch_stream),
+            None => {
+                error!("stream is None");
+                return Err(Box::new(IOError::new(ErrorKind::Other, "stream is None")));
+            }
+        };
+
         tokio::spawn(async move {
             info!("start the watch thread");
+            watch_thread_running.store(true, Ordering::Relaxed);
 
             let re_str = if root.is_empty() {
                 "^(/[^/]+/[^/]+)".to_string()
@@ -204,7 +235,7 @@ impl Discovery for Etcd {
                         Some(resp) => {
                             // receive events watching has cancelled
                             if resp.canceled() {
-                                info!("a request to stop the watch thread has been received");
+                                debug!("a request to stop the watch thread has been received");
                                 break;
                             }
 
@@ -487,6 +518,7 @@ impl Discovery for Etcd {
                 };
             }
 
+            watch_thread_running.store(false, Ordering::Relaxed);
             info!("exit the watch thread");
         });
 
@@ -494,30 +526,58 @@ impl Discovery for Etcd {
     }
 
     async fn unwatch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match self.watcher.cancel().await {
-            Ok(_) => {
-                sleep(Duration::from_secs(1));
-            }
-            Err(e) => return Err(Box::new(e)),
+        if !self.watch_thread_running.load(Ordering::Relaxed) {
+            warn!("watch thread is not running");
+            return Err(Box::new(IOError::new(
+                ErrorKind::Other,
+                "watch thread is not running",
+            )));
         }
 
-        Ok(())
+        let watcher = match &self.watcher {
+            Some(watcher) => Arc::clone(&watcher),
+            None => {
+                error!("stream is None");
+                return Err(Box::new(IOError::new(ErrorKind::Other, "stream is None")));
+            }
+        };
+
+        let mut watcher = watcher.lock().await;
+
+        match watcher.cancel().await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 
     async fn start_health_check(
         &mut self,
         interval: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let stop_healthcheck = Arc::clone(&self.stop_health_check_thread);
+        let health_check_thread_running = Arc::clone(&self.health_check_thread_running);
+        let stop_health_check_thread = Arc::clone(&self.stop_health_check_thread);
         let nodes = Arc::clone(&self.nodes);
         let mut client = self.client.clone();
 
+        if self.health_check_thread_running.load(Ordering::Relaxed) {
+            warn!("health check is running in another thread");
+            return Err(Box::new(IOError::new(
+                ErrorKind::Other,
+                "health check is running in another thread",
+            )));
+        }
+
         tokio::spawn(async move {
             info!("start a health check thread");
+            health_check_thread_running.store(true, Ordering::Relaxed);
 
             loop {
-                if stop_healthcheck.load(Ordering::Relaxed) {
-                    info!("a request to stop the health check thread has been received");
+                if stop_health_check_thread.load(Ordering::Relaxed) {
+                    debug!("a request to stop the health check thread has been received");
+
+                    // restore stop flag to false
+                    stop_health_check_thread.store(false, Ordering::Relaxed);
+
                     break;
                 } else {
                     let nodes = nodes.lock().await;
@@ -644,6 +704,7 @@ impl Discovery for Etcd {
                 sleep(Duration::from_millis(interval));
             }
 
+            health_check_thread_running.store(false, Ordering::Relaxed);
             info!("exit the health check thread");
         });
 
@@ -651,8 +712,15 @@ impl Discovery for Etcd {
     }
 
     async fn stop_health_check(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if !self.health_check_thread_running.load(Ordering::Relaxed) {
+            warn!("health check thread is not running");
+            return Err(Box::new(IOError::new(
+                ErrorKind::Other,
+                "health check thread is not running",
+            )));
+        }
+
         self.stop_health_check_thread.store(true, Ordering::Relaxed);
-        sleep(Duration::from_secs(1));
 
         Ok(())
     }

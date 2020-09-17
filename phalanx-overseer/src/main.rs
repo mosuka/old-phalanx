@@ -4,18 +4,26 @@ extern crate clap;
 use std::convert::{Infallible, TryFrom};
 use std::io::{Error as IOError, ErrorKind};
 use std::net::SocketAddr;
+use std::thread::sleep;
+use std::time::Duration;
 
 use clap::{App, AppSettings, Arg};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server as HyperServer;
 use log::*;
 use tokio::signal;
+use tonic::transport::Server as TonicServer;
+use tonic::Request;
 
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd as EtcdDiscovery, TYPE as ETCD_TYPE};
 use phalanx_discovery::discovery::nop::{Nop as NopDiscovery, TYPE as NOP_TYPE};
 use phalanx_discovery::discovery::Discovery;
+use phalanx_overseer::server::grpc::OverseerService;
 use phalanx_overseer::server::http::handle;
+use phalanx_proto::phalanx::overseer_service_client::OverseerServiceClient;
+use phalanx_proto::phalanx::overseer_service_server::OverseerServiceServer;
+use phalanx_proto::phalanx::{UnwatchReq, WatchReq};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -35,6 +43,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .long("host")
                 .value_name("HOST")
                 .default_value("0.0.0.0")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("GRPC_PORT")
+                .help("gRPC port number")
+                .long("grpc-port")
+                .value_name("GRPC_PORT")
+                .default_value("5100")
                 .takes_value(true),
         )
         .arg(
@@ -85,12 +101,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let matches = app.get_matches();
 
     let host = matches.value_of("HOST").unwrap();
+    let grpc_port = matches
+        .value_of("GRPC_PORT")
+        .unwrap()
+        .parse::<u16>()
+        .unwrap();
     let http_port = matches
         .value_of("HTTP_PORT")
         .unwrap()
         .parse::<u16>()
         .unwrap();
-
     let discovery_type = matches.value_of("DISCOVERY_TYPE").unwrap();
 
     let etcd_endpoints: Vec<&str> = matches
@@ -106,7 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .parse::<u64>()
         .unwrap();
 
-    let mut discovery: Box<dyn Discovery> = match discovery_type {
+    let discovery: Box<dyn Discovery> = match discovery_type {
         ETCD_TYPE => {
             info!("enable etcd");
             Box::new(EtcdDiscovery::new(etcd_endpoints, etcd_root))
@@ -124,6 +144,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .unwrap());
     }
 
+    let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
+    let grpc_service = OverseerService::new(discovery);
+    tokio::spawn(
+        TonicServer::builder()
+            .add_service(OverseerServiceServer::new(grpc_service))
+            .serve(grpc_addr),
+    );
+    info!("start gRPC server on {}", grpc_addr);
+
+    let grpc_server_url = format!("http://{}:{}", host, grpc_port);
+    let mut grpc_client = OverseerServiceClient::connect(grpc_server_url.clone())
+        .await
+        .unwrap();
+    info!("start gRPC client for {}", &grpc_server_url);
+
     let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
     let http_service =
         make_service_fn(
@@ -132,28 +167,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
     info!("start HTTP server on {}", http_addr);
 
-    match discovery.watch().await {
-        Ok(_) => (),
-        Err(e) => return Err(e),
-    };
+    let watch_req = Request::new(WatchReq {
+        interval: watch_interval,
+    });
 
-    match discovery.start_health_check(watch_interval).await {
+    match grpc_client.watch(watch_req).await {
         Ok(_) => (),
-        Err(e) => return Err(e),
+        Err(e) => {
+            return Err(Box::try_from(IOError::new(
+                ErrorKind::Other,
+                format!("failed to watch: error={:?}", e),
+            ))
+            .unwrap())
+        }
     };
 
     signal::ctrl_c().await?;
     info!("ctrl-c received");
 
-    match discovery.unwatch().await {
+    let unwatch_req = Request::new(UnwatchReq {});
+
+    match grpc_client.unwatch(unwatch_req).await {
         Ok(_) => (),
-        Err(e) => return Err(e),
+        Err(e) => {
+            return Err(Box::try_from(IOError::new(
+                ErrorKind::Other,
+                format!("failed to unwatch: error={:?}", e),
+            ))
+            .unwrap())
+        }
     };
 
-    match discovery.stop_health_check().await {
-        Ok(_) => (),
-        Err(e) => return Err(e),
-    };
+    sleep(Duration::from_secs(1));
 
     Ok(())
 }
