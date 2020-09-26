@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_std::task::block_on;
 use log::*;
@@ -11,14 +11,17 @@ use tantivy::merge_policy::LogMergePolicy;
 use tantivy::query::{QueryParser, TermQuery};
 use tantivy::schema::{Field, FieldType, IndexRecordOption, Schema};
 use tantivy::{Document, Index, IndexWriter, Term};
+use tokio::sync::Mutex;
 use tonic::{Code, Request, Response, Status};
 
+use phalanx_discovery::discovery::Discovery;
 use phalanx_proto::phalanx::index_service_server::IndexService as ProtoIndexService;
 use phalanx_proto::phalanx::{
     BulkDeleteReply, BulkDeleteReq, BulkSetReply, BulkSetReq, CommitReply, CommitReq, DeleteReply,
     DeleteReq, GetReply, GetReq, MergeReply, MergeReq, PullReply, PullReq, PushReply, PushReq,
-    ReadinessReply, ReadinessReq, RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply,
-    SearchReq, SetReply, SetReq, State,
+    ReadinessReply, ReadinessReq, Role, RollbackReply, RollbackReq, SchemaReply, SchemaReq,
+    SearchReply, SearchReq, SetReply, SetReq, State, UnwatchReply, UnwatchReq, WatchReply,
+    WatchReq,
 };
 use phalanx_storage::storage::Storage;
 
@@ -45,23 +48,27 @@ pub struct IndexService {
     index_config: IndexConfig,
     index: Arc<Index>,
     index_writer: Arc<Mutex<IndexWriter>>,
-    cluster: String,
-    shard: String,
+    index_name: String,
+    shard_name: String,
+    node_name: String,
+    discovery: Arc<Mutex<Box<dyn Discovery>>>,
     storage: Box<dyn Storage>,
 }
 
 impl IndexService {
     pub fn new(
         index_config: IndexConfig,
-        cluster: &str,
-        shard: &str,
+        index_name: &str,
+        shard_name: &str,
+        node_name: &str,
+        discovery: Box<dyn Discovery>,
         storage: Box<dyn Storage>,
     ) -> IndexService {
         // create index directory
         fs::create_dir_all(&index_config.index_dir).unwrap_or_default();
 
         // check if the index exists in storage
-        let exist_future = storage.exist(cluster, shard);
+        let exist_future = storage.exist(index_name, shard_name);
         let exist = match block_on(exist_future) {
             Ok(exist) => exist,
             Err(e) => {
@@ -72,7 +79,7 @@ impl IndexService {
 
         // pull index if the index exists in storage
         if exist {
-            let pull_index_future = storage.pull_index(cluster, shard);
+            let pull_index_future = storage.pull_index(index_name, shard_name);
             match block_on(pull_index_future) {
                 Ok(_) => (),
                 Err(e) => {
@@ -152,8 +159,10 @@ impl IndexService {
             index_config,
             index: Arc::new(index),
             index_writer: Arc::new(Mutex::new(index_writer)),
-            cluster: String::from(cluster),
-            shard: String::from(shard),
+            index_name: String::from(index_name),
+            shard_name: String::from(shard_name),
+            node_name: String::from(node_name),
+            discovery: Arc::new(Mutex::new(discovery)),
             storage,
         }
     }
@@ -162,6 +171,17 @@ impl IndexService {
         self.index
             .schema()
             .get_field(&self.index_config.unique_key_field)
+    }
+
+    async fn push_index(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        match self
+            .storage
+            .push_index(&self.index_name, &self.shard_name)
+            .await
+        {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -185,6 +205,54 @@ impl ProtoIndexService for IndexService {
         Ok(Response::new(reply))
     }
 
+    async fn watch(&self, _request: Request<WatchReq>) -> Result<Response<WatchReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["watch"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["watch"])
+            .start_timer();
+
+        let discovery = Arc::clone(&self.discovery);
+        let mut discovery = discovery.lock().await;
+
+        match discovery.watch_cluster().await {
+            Ok(_) => (),
+            Err(e) => {
+                error!("failed to start watch thread: error = {:?}", e);
+            }
+        };
+
+        let reply = WatchReply {};
+
+        timer.observe_duration();
+
+        Ok(Response::new(reply))
+    }
+
+    async fn unwatch(
+        &self,
+        _request: Request<UnwatchReq>,
+    ) -> Result<Response<UnwatchReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["unwatch"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["unwatch"])
+            .start_timer();
+
+        let discovery = Arc::clone(&self.discovery);
+        let mut discovery = discovery.lock().await;
+
+        match discovery.unwatch_cluster().await {
+            Ok(_) => (),
+            Err(e) => {
+                error!("failed to stop watch thread: error = {:?}", e);
+            }
+        };
+
+        let reply = UnwatchReply {};
+
+        timer.observe_duration();
+
+        Ok(Response::new(reply))
+    }
     async fn get(&self, request: Request<GetReq>) -> Result<Response<GetReply>, Status> {
         REQUEST_COUNTER.with_label_values(&["get"]).inc();
         let timer = REQUEST_HISTOGRAM.with_label_values(&["get"]).start_timer();
@@ -286,13 +354,9 @@ impl ProtoIndexService for IndexService {
             }
         };
 
-        let _opstamp = self
-            .index_writer
-            .lock()
-            .unwrap()
-            .delete_term(Term::from_field_text(id_field, id));
-
-        let _opstamp = self.index_writer.lock().unwrap().add_document(doc);
+        let index_writer = self.index_writer.lock().await;
+        let _opstamp = index_writer.delete_term(Term::from_field_text(id_field, id));
+        let _opstamp = index_writer.add_document(doc);
 
         let reply = SetReply {};
 
@@ -319,7 +383,8 @@ impl ProtoIndexService for IndexService {
 
         let term = Term::from_field_text(id_field, &req.id);
 
-        let _opstamp = self.index_writer.lock().unwrap().delete_term(term);
+        let index_writer = self.index_writer.lock().await;
+        let _opstamp = index_writer.delete_term(term);
 
         let reply = DeleteReply {};
 
@@ -372,13 +437,9 @@ impl ProtoIndexService for IndexService {
                 }
             };
 
-            let _opstamp = self
-                .index_writer
-                .lock()
-                .unwrap()
-                .delete_term(Term::from_field_text(id_field, id));
-
-            let _opstamp = self.index_writer.lock().unwrap().add_document(doc);
+            let index_writer = self.index_writer.lock().await;
+            let _opstamp = index_writer.delete_term(Term::from_field_text(id_field, id));
+            let _opstamp = index_writer.add_document(doc);
         }
 
         let reply = BulkSetReply {};
@@ -411,7 +472,8 @@ impl ProtoIndexService for IndexService {
         for r in req.requests {
             let term = Term::from_field_text(id_field, &r.id);
 
-            let _opstamp = self.index_writer.lock().unwrap().delete_term(term);
+            let index_writer = self.index_writer.lock().await;
+            let _opstamp = index_writer.delete_term(term);
         }
 
         let reply = BulkDeleteReply {};
@@ -427,7 +489,8 @@ impl ProtoIndexService for IndexService {
             .with_label_values(&["commit"])
             .start_timer();
 
-        let _opstamp = match self.index_writer.lock().unwrap().commit() {
+        let mut index_writer = self.index_writer.lock().await;
+        let _opstamp = match index_writer.commit() {
             Ok(opstamp) => opstamp,
             Err(e) => {
                 timer.observe_duration();
@@ -435,6 +498,33 @@ impl ProtoIndexService for IndexService {
                 return Err(Status::new(
                     Code::Internal,
                     format!("failed to commit index: error = {:?}", e),
+                ));
+            }
+        };
+
+        let discovery = Arc::clone(&self.discovery);
+        let mut discovery = discovery.lock().await;
+        match discovery
+            .get_node(&self.index_name, &self.shard_name, &self.node_name)
+            .await
+        {
+            Ok(result) => match result {
+                Some(node_details) => {
+                    if node_details.role == Role::Primary as i32 {
+                        match self.push_index().await {
+                            Ok(_) => (),
+                            Err(e) => error!("failed to push index: error:{:?}", e),
+                        }
+                    }
+                }
+                None => debug!("the node does not exist"),
+            },
+            Err(e) => {
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to get node: error = {:?}", e),
                 ));
             }
         };
@@ -455,7 +545,8 @@ impl ProtoIndexService for IndexService {
             .with_label_values(&["rollback"])
             .start_timer();
 
-        let _opstamp = match self.index_writer.lock().unwrap().rollback() {
+        let mut index_writer = self.index_writer.lock().await;
+        let _opstamp = match index_writer.rollback() {
             Ok(opstamp) => opstamp,
             Err(e) => {
                 timer.observe_duration();
@@ -490,8 +581,8 @@ impl ProtoIndexService for IndexService {
             return Ok(Response::new(reply));
         }
 
-        let merge_future = self.index_writer.lock().unwrap().merge(&segment_ids);
-        let segment_meta = match block_on(merge_future) {
+        let mut index_writer = self.index_writer.lock().await;
+        let segment_meta = match index_writer.merge(&segment_ids).await {
             Ok(segment_meta) => segment_meta,
             Err(e) => {
                 timer.observe_duration();
@@ -504,6 +595,33 @@ impl ProtoIndexService for IndexService {
         };
         debug!("merge index: segment_meta={:?}", segment_meta);
 
+        let discovery = Arc::clone(&self.discovery);
+        let mut discovery = discovery.lock().await;
+        match discovery
+            .get_node(&self.index_name, &self.shard_name, &self.node_name)
+            .await
+        {
+            Ok(result) => match result {
+                Some(node_details) => {
+                    if node_details.role == Role::Primary as i32 {
+                        match self.push_index().await {
+                            Ok(_) => (),
+                            Err(e) => error!("failed to push index: error:{:?}", e),
+                        }
+                    }
+                }
+                None => debug!("the node does not exist"),
+            },
+            Err(e) => {
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to get node: error = {:?}", e),
+                ));
+            }
+        };
+
         let reply = MergeReply {};
 
         timer.observe_duration();
@@ -515,7 +633,7 @@ impl ProtoIndexService for IndexService {
         REQUEST_COUNTER.with_label_values(&["push"]).inc();
         let timer = REQUEST_HISTOGRAM.with_label_values(&["push"]).start_timer();
 
-        match self.storage.push_index(&self.cluster, &self.shard).await {
+        match self.push_index().await {
             Ok(_) => (),
             Err(e) => {
                 timer.observe_duration();
@@ -538,7 +656,11 @@ impl ProtoIndexService for IndexService {
         REQUEST_COUNTER.with_label_values(&["pull"]).inc();
         let timer = REQUEST_HISTOGRAM.with_label_values(&["pull"]).start_timer();
 
-        match self.storage.pull_index(&self.cluster, &self.shard).await {
+        match self
+            .storage
+            .pull_index(&self.index_name, &self.shard_name)
+            .await
+        {
             Ok(_) => (),
             Err(e) => {
                 timer.observe_duration();

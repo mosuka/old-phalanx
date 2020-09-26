@@ -47,9 +47,13 @@ pub trait Discovery: Send + Sync + 'static {
         node_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-    async fn watch(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn watch_cluster(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-    async fn unwatch(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn unwatch_cluster(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn watch_role(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn unwatch_role(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     async fn start_health_check(
         &mut self,

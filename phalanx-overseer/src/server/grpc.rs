@@ -59,6 +59,87 @@ impl ProtoOverseerService for OverseerService {
         Ok(Response::new(reply))
     }
 
+    async fn watch(&self, request: Request<WatchReq>) -> Result<Response<WatchReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["watch"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["watch"])
+            .start_timer();
+
+        let req = request.into_inner();
+
+        let interval = req.interval;
+
+        let discovery = Arc::clone(&self.discovery);
+        let mut discovery = discovery.lock().await;
+
+        match discovery.watch_cluster().await {
+            Ok(_) => (),
+            Err(e) => {
+                error!("failed to start watch thread: error = {:?}", e);
+            }
+        };
+
+        match discovery.watch_role().await {
+            Ok(_) => (),
+            Err(e) => {
+                error!("failed to start role check thread: error = {:?}", e);
+            }
+        };
+
+        match discovery.start_health_check(interval).await {
+            Ok(_) => (),
+            Err(e) => {
+                error!("failed to start state check thread: error = {:?}", e);
+            }
+        };
+
+        let reply = WatchReply {};
+
+        timer.observe_duration();
+
+        Ok(Response::new(reply))
+    }
+
+    async fn unwatch(
+        &self,
+        _request: Request<UnwatchReq>,
+    ) -> Result<Response<UnwatchReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["unwatch"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["unwatch"])
+            .start_timer();
+
+        let discovery = Arc::clone(&self.discovery);
+        let mut discovery = discovery.lock().await;
+
+        match discovery.unwatch_cluster().await {
+            Ok(_) => (),
+            Err(e) => {
+                error!("failed to stop watch thread: error = {:?}", e);
+            }
+        };
+
+        match discovery.unwatch_role().await {
+            Ok(_) => (),
+            Err(e) => {
+                error!("failed to stop role check thread: error = {:?}", e);
+            }
+        };
+
+        match discovery.stop_health_check().await {
+            Ok(_) => (),
+            Err(e) => {
+                error!("failed to stop health check thread: error = {:?}", e);
+            }
+        };
+
+        let reply = UnwatchReply {};
+
+        timer.observe_duration();
+
+        Ok(Response::new(reply))
+    }
+
     async fn register(
         &self,
         request: Request<RegisterReq>,
@@ -176,72 +257,5 @@ impl ProtoOverseerService for OverseerService {
                 ))
             }
         }
-    }
-
-    async fn watch(&self, request: Request<WatchReq>) -> Result<Response<WatchReply>, Status> {
-        REQUEST_COUNTER.with_label_values(&["watch"]).inc();
-        let timer = REQUEST_HISTOGRAM
-            .with_label_values(&["watch"])
-            .start_timer();
-
-        let req = request.into_inner();
-
-        let interval = req.interval;
-
-        let discovery = Arc::clone(&self.discovery);
-        let mut discovery = discovery.lock().await;
-
-        match discovery.watch().await {
-            Ok(_) => (),
-            Err(e) => {
-                error!("failed to start watch thread: error = {:?}", e);
-            }
-        };
-
-        match discovery.start_health_check(interval).await {
-            Ok(_) => (),
-            Err(e) => {
-                error!("failed to start health check thread: error = {:?}", e);
-            }
-        };
-
-        let reply = WatchReply {};
-
-        timer.observe_duration();
-
-        Ok(Response::new(reply))
-    }
-
-    async fn unwatch(
-        &self,
-        _request: Request<UnwatchReq>,
-    ) -> Result<Response<UnwatchReply>, Status> {
-        REQUEST_COUNTER.with_label_values(&["unwatch"]).inc();
-        let timer = REQUEST_HISTOGRAM
-            .with_label_values(&["unwatch"])
-            .start_timer();
-
-        let discovery = Arc::clone(&self.discovery);
-        let mut discovery = discovery.lock().await;
-
-        match discovery.unwatch().await {
-            Ok(_) => (),
-            Err(e) => {
-                error!("failed to stop watch thread: error = {:?}", e);
-            }
-        };
-
-        match discovery.stop_health_check().await {
-            Ok(_) => (),
-            Err(e) => {
-                error!("failed to stop health check thread: error = {:?}", e);
-            }
-        };
-
-        let reply = UnwatchReply {};
-
-        timer.observe_duration();
-
-        Ok(Response::new(reply))
     }
 }

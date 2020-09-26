@@ -50,11 +50,19 @@ impl Discovery for Nop {
         Ok(())
     }
 
-    async fn watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn watch_cluster(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
-    async fn unwatch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn unwatch_cluster(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn watch_role(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn unwatch_role(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 

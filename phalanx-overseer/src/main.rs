@@ -17,7 +17,6 @@ use tonic::Request;
 
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd as EtcdDiscovery, TYPE as ETCD_TYPE};
-use phalanx_discovery::discovery::nop::{Nop as NopDiscovery, TYPE as NOP_TYPE};
 use phalanx_discovery::discovery::Discovery;
 use phalanx_overseer::server::grpc::OverseerService;
 use phalanx_overseer::server::http::handle;
@@ -126,24 +125,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .parse::<u64>()
         .unwrap();
 
+    // create discovery
     let discovery: Box<dyn Discovery> = match discovery_type {
         ETCD_TYPE => {
             info!("enable etcd");
             Box::new(EtcdDiscovery::new(etcd_endpoints, etcd_root))
         }
         _ => {
-            info!("disable node discovery");
-            Box::new(NopDiscovery::new())
+            return Err(Box::try_from(IOError::new(
+                ErrorKind::Other,
+                format!("unsupported discovery type: {}", discovery_type),
+            ))
+            .unwrap());
         }
     };
-    if discovery.get_type() == NOP_TYPE {
-        return Err(Box::try_from(IOError::new(
-            ErrorKind::Other,
-            format!("unsupported discovery type: {}", discovery_type),
-        ))
-        .unwrap());
-    }
 
+    // start gRPC server
     let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
     let grpc_service = OverseerService::new(discovery);
     tokio::spawn(
@@ -153,12 +150,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     info!("start gRPC server on {}", grpc_addr);
 
+    // create gRPC client
     let grpc_server_url = format!("http://{}:{}", host, grpc_port);
     let mut grpc_client = OverseerServiceClient::connect(grpc_server_url.clone())
         .await
         .unwrap();
-    info!("start gRPC client for {}", &grpc_server_url);
+    info!("create gRPC client for {}", &grpc_server_url);
 
+    // start HTTP server
     let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
     let http_service =
         make_service_fn(
@@ -167,10 +166,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
     info!("start HTTP server on {}", http_addr);
 
+    // watch
     let watch_req = Request::new(WatchReq {
         interval: watch_interval,
     });
-
     match grpc_client.watch(watch_req).await {
         Ok(_) => (),
         Err(e) => {
@@ -185,8 +184,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     signal::ctrl_c().await?;
     info!("ctrl-c received");
 
+    // unwatch
     let unwatch_req = Request::new(UnwatchReq {});
-
     match grpc_client.unwatch(unwatch_req).await {
         Ok(_) => (),
         Err(e) => {

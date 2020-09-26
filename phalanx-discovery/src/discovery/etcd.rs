@@ -24,11 +24,17 @@ pub struct Etcd {
     pub client: Client,
     pub root: String,
     pub nodes: Arc<Mutex<HashMap<String, Option<NodeDetails>>>>,
-    pub watcher: Option<Arc<Mutex<Watcher>>>,
-    pub watch_stream: Option<Arc<Mutex<WatchStream>>>,
-    pub stop_health_check_thread: Arc<AtomicBool>,
-    pub watch_thread_running: Arc<AtomicBool>,
-    pub health_check_thread_running: Arc<AtomicBool>,
+
+    pub cluster_watcher: Option<Arc<Mutex<Watcher>>>,
+    pub cluster_watch_stream: Option<Arc<Mutex<WatchStream>>>,
+    pub cluster_watcher_running: Arc<AtomicBool>,
+
+    pub role_watcher: Option<Arc<Mutex<Watcher>>>,
+    pub role_watch_stream: Option<Arc<Mutex<WatchStream>>>,
+    pub role_watcher_running: Arc<AtomicBool>,
+
+    pub stop_health_checker: Arc<AtomicBool>,
+    pub health_checker_running: Arc<AtomicBool>,
 }
 
 impl Etcd {
@@ -47,11 +53,14 @@ impl Etcd {
             client,
             root: root.to_string(),
             nodes: Arc::new(Mutex::new(HashMap::new())),
-            watcher: None,
-            watch_stream: None,
-            stop_health_check_thread: Arc::new(AtomicBool::new(false)),
-            watch_thread_running: Arc::new(AtomicBool::new(false)),
-            health_check_thread_running: Arc::new(AtomicBool::new(false)),
+            cluster_watcher: None,
+            cluster_watch_stream: None,
+            cluster_watcher_running: Arc::new(AtomicBool::new(false)),
+            role_watcher: None,
+            role_watch_stream: None,
+            role_watcher_running: Arc::new(AtomicBool::new(false)),
+            stop_health_checker: Arc::new(AtomicBool::new(false)),
+            health_checker_running: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -111,17 +120,17 @@ impl Discovery for Etcd {
         }
     }
 
-    async fn watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let watch_thread_running = Arc::clone(&self.watch_thread_running);
+    async fn watch_cluster(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let watch_thread_running = Arc::clone(&self.cluster_watcher_running);
         let nodes = Arc::clone(&self.nodes);
         let root = self.root.clone();
         let mut client = self.client.clone();
 
-        if self.watch_thread_running.load(Ordering::Relaxed) {
-            warn!("watch is running in another thread");
+        if self.cluster_watcher_running.load(Ordering::Relaxed) {
+            warn!("the cluster watcher is already running");
             return Err(Box::new(IOError::new(
                 ErrorKind::Other,
-                "watch is running in another thread",
+                "the cluster watcher is already running",
             )));
         }
 
@@ -131,19 +140,19 @@ impl Discovery for Etcd {
             .await
         {
             Ok((watcher, watch_stream)) => {
-                self.watcher = Some(Arc::new(Mutex::new(watcher)));
-                self.watch_stream = Some(Arc::new(Mutex::new(watch_stream)));
+                self.cluster_watcher = Some(Arc::new(Mutex::new(watcher)));
+                self.cluster_watch_stream = Some(Arc::new(Mutex::new(watch_stream)));
             }
             Err(e) => {
-                error!("failed to etcd watcher: error = {:?}", e);
+                error!("failed to watch etcd: error = {:?}", e);
                 return Err(Box::new(IOError::new(
                     ErrorKind::Other,
-                    format!("failed to etcd watcher: error = {:?}", e),
+                    format!("failed to watch etcd: error = {:?}", e),
                 )));
             }
         };
 
-        let watch_stream = match &self.watch_stream {
+        let watch_stream = match &self.cluster_watch_stream {
             Some(watch_stream) => Arc::clone(&watch_stream),
             None => {
                 error!("stream is None");
@@ -154,13 +163,6 @@ impl Discovery for Etcd {
         tokio::spawn(async move {
             info!("start the watch thread");
             watch_thread_running.store(true, Ordering::Relaxed);
-
-            let re_str = if root.is_empty() {
-                "^(/[^/]+/[^/]+)".to_string()
-            } else {
-                format!("^({}/[^/]+/[^/]+)", &root)
-            };
-            let re = Regex::new(&re_str).unwrap();
 
             // initialize a local node cache
             let key = format!("{}/", &root);
@@ -197,10 +199,6 @@ impl Discovery for Etcd {
                                 }
                             }
                         };
-                        debug!(
-                            "node information has been initialized: key={}, value={:?}",
-                            key, &node_details
-                        );
                         nodes.insert(key.to_string(), node_details.clone());
 
                         // update node metrics
@@ -228,14 +226,12 @@ impl Discovery for Etcd {
 
             loop {
                 let mut watch_stream = watch_stream.lock().await;
-
                 let resp = watch_stream.message().await;
                 match resp {
                     Ok(resp) => match resp {
                         Some(resp) => {
                             // receive events watching has cancelled
                             if resp.canceled() {
-                                debug!("a request to stop the watch thread has been received");
                                 break;
                             }
 
@@ -274,7 +270,6 @@ impl Discovery for Etcd {
                                     let mut nodes = nodes.lock().await;
                                     match event.event_type() {
                                         EventType::Put => {
-                                            debug!("node information has been updated: key={}, value={:?}", key, &node_details);
                                             nodes.insert(key.to_string(), node_details.clone());
 
                                             // update node metrics
@@ -301,15 +296,127 @@ impl Discovery for Etcd {
                                             };
                                         }
                                         EventType::Delete => {
-                                            debug!(
-                                                "node information has been deleted: key={}",
-                                                key
-                                            );
                                             nodes.remove(key);
                                         }
                                     };
 
                                     debug!("node list has changed: nodes={:?}", nodes);
+                                }
+                            }
+                        }
+                        None => {
+                            warn!("watch response is None");
+                        }
+                    },
+                    Err(e) => {
+                        error!("failed to get watch response: error={:?}", e);
+                    }
+                };
+            }
+
+            watch_thread_running.store(false, Ordering::Relaxed);
+            info!("exit the watch thread");
+        });
+
+        Ok(())
+    }
+
+    async fn unwatch_cluster(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if !self.cluster_watcher_running.load(Ordering::Relaxed) {
+            warn!("the cluster watcher is not running");
+            return Err(Box::new(IOError::new(
+                ErrorKind::Other,
+                "watch thread is not running",
+            )));
+        }
+
+        let watcher = match &self.cluster_watcher {
+            Some(watcher) => Arc::clone(&watcher),
+            None => {
+                error!("stream is None");
+                return Err(Box::new(IOError::new(ErrorKind::Other, "stream is None")));
+            }
+        };
+
+        let mut watcher = watcher.lock().await;
+
+        match watcher.cancel().await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    async fn watch_role(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let role_watch_thread_running = Arc::clone(&self.role_watcher_running);
+        let root = self.root.clone();
+        let mut client = self.client.clone();
+
+        if self.role_watcher_running.load(Ordering::Relaxed) {
+            warn!("the role watcher is already running");
+            return Err(Box::new(IOError::new(
+                ErrorKind::Other,
+                "the role watcher is already running",
+            )));
+        }
+
+        match self
+            .client
+            .watch(self.root.clone(), Some(WatchOptions::new().with_prefix()))
+            .await
+        {
+            Ok((watcher, watch_stream)) => {
+                self.role_watcher = Some(Arc::new(Mutex::new(watcher)));
+                self.role_watch_stream = Some(Arc::new(Mutex::new(watch_stream)));
+            }
+            Err(e) => {
+                error!("failed to watch etcd: error = {:?}", e);
+                return Err(Box::new(IOError::new(
+                    ErrorKind::Other,
+                    format!("failed to watch etcd: error = {:?}", e),
+                )));
+            }
+        };
+
+        let watch_stream = match &self.role_watch_stream {
+            Some(watch_stream) => Arc::clone(&watch_stream),
+            None => {
+                error!("stream is None");
+                return Err(Box::new(IOError::new(ErrorKind::Other, "stream is None")));
+            }
+        };
+
+        tokio::spawn(async move {
+            info!("start the watch thread");
+            role_watch_thread_running.store(true, Ordering::Relaxed);
+
+            let re_str = if root.is_empty() {
+                "^(/[^/]+/[^/]+)".to_string()
+            } else {
+                format!("^({}/[^/]+/[^/]+)", &root)
+            };
+            let re = Regex::new(&re_str).unwrap();
+
+            loop {
+                let mut watch_stream = watch_stream.lock().await;
+                let resp = watch_stream.message().await;
+                match resp {
+                    Ok(resp) => match resp {
+                        Some(resp) => {
+                            // receive events watching has cancelled
+                            if resp.canceled() {
+                                break;
+                            }
+
+                            // receive events
+                            for event in resp.events() {
+                                if let Some(kv) = event.kv() {
+                                    let key = match kv.key_str() {
+                                        Ok(key) => key,
+                                        Err(e) => {
+                                            error!("failed to get key: error={:?}", e);
+                                            continue;
+                                        }
+                                    };
 
                                     // get the shard where the event occurred
                                     let shard = match re.captures(key) {
@@ -370,8 +477,8 @@ impl Discovery for Etcd {
                                                                         &node_details,
                                                                     )
                                                                     .unwrap();
-                                                                match client.put(key.to_string(), new_value, None).await {
-                                                                    Ok(_put_response) => debug!("node details has been successfully updated"),
+                                                                match client.put(key.to_string(), new_value.clone(), None).await {
+                                                                    Ok(_put_response) => info!("the role of the node has been changed to replica: key={}, value={}", key, new_value),
                                                                     Err(e) => error!("failed to update node details: error={:?}", e),
                                                                 };
                                                             }
@@ -486,8 +593,8 @@ impl Discovery for Etcd {
                                                                             &node_details,
                                                                         )
                                                                         .unwrap();
-                                                                    match client.put(key.to_string(), new_value, None).await {
-                                                                        Ok(_put_response) => debug!("node details has been successfully updated"),
+                                                                    match client.put(key.to_string(), new_value.clone(), None).await {
+                                                                        Ok(_put_response) => info!("the role of the node has been changed to primary: key={}, value={}", key, new_value),
                                                                         Err(e) => error!("failed to update node details: error={:?}", e),
                                                                     };
                                                                 }
@@ -518,23 +625,23 @@ impl Discovery for Etcd {
                 };
             }
 
-            watch_thread_running.store(false, Ordering::Relaxed);
+            role_watch_thread_running.store(false, Ordering::Relaxed);
             info!("exit the watch thread");
         });
 
         Ok(())
     }
 
-    async fn unwatch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if !self.watch_thread_running.load(Ordering::Relaxed) {
-            warn!("watch thread is not running");
+    async fn unwatch_role(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if !self.role_watcher_running.load(Ordering::Relaxed) {
+            warn!("the role watcher is not running");
             return Err(Box::new(IOError::new(
                 ErrorKind::Other,
-                "watch thread is not running",
+                "the role watcher is not running",
             )));
         }
 
-        let watcher = match &self.watcher {
+        let watcher = match &self.role_watcher {
             Some(watcher) => Arc::clone(&watcher),
             None => {
                 error!("stream is None");
@@ -554,34 +661,32 @@ impl Discovery for Etcd {
         &mut self,
         interval: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let health_check_thread_running = Arc::clone(&self.health_check_thread_running);
-        let stop_health_check_thread = Arc::clone(&self.stop_health_check_thread);
+        let state_check_thread_running = Arc::clone(&self.health_checker_running);
+        let stop_state_check_thread = Arc::clone(&self.stop_health_checker);
         let nodes = Arc::clone(&self.nodes);
         let mut client = self.client.clone();
 
-        if self.health_check_thread_running.load(Ordering::Relaxed) {
-            warn!("health check is running in another thread");
+        if self.health_checker_running.load(Ordering::Relaxed) {
+            warn!("the health checker is already running");
             return Err(Box::new(IOError::new(
                 ErrorKind::Other,
-                "health check is running in another thread",
+                "the health checker is already running",
             )));
         }
 
         tokio::spawn(async move {
-            info!("start a health check thread");
-            health_check_thread_running.store(true, Ordering::Relaxed);
+            info!("start a state check thread");
+            state_check_thread_running.store(true, Ordering::Relaxed);
 
             loop {
-                if stop_health_check_thread.load(Ordering::Relaxed) {
-                    debug!("a request to stop the health check thread has been received");
+                if stop_state_check_thread.load(Ordering::Relaxed) {
+                    debug!("a request to stop the state check thread has been received");
 
                     // restore stop flag to false
-                    stop_health_check_thread.store(false, Ordering::Relaxed);
-
+                    stop_state_check_thread.store(false, Ordering::Relaxed);
                     break;
                 } else {
                     let nodes = nodes.lock().await;
-
                     for (key, node_details) in nodes.iter() {
                         // health check
                         match node_details {
@@ -604,12 +709,8 @@ impl Discovery for Etcd {
                                                             &new_node_details,
                                                         )
                                                         .unwrap();
-                                                        debug!(
-                                                            "node is ready: key={}, value={}",
-                                                            key, &value
-                                                        );
-                                                        match client.put(key.to_string(), value, None).await {
-                                                            Ok(_put_response) => debug!("node details has been successfully updated"),
+                                                        match client.put(key.to_string(), value.clone(), None).await {
+                                                            Ok(_put_response) => info!("the node is ready: key={}, value={}", key, value),
                                                             Err(e) => error!("failed to update node details: error={:?}", e),
                                                         };
                                                     }
@@ -627,12 +728,8 @@ impl Discovery for Etcd {
                                                             &new_node_details,
                                                         )
                                                         .unwrap();
-                                                        warn!(
-                                                            "node is not ready: key={}, value={}",
-                                                            key, &value
-                                                        );
-                                                        match client.put(key.to_string(), value, None).await {
-                                                            Ok(_put_response) => debug!("node details has been successfully updated"),
+                                                        match client.put(key.to_string(), value.clone(), None).await {
+                                                            Ok(_put_response) => warn!("the node is not ready: key={}, value={}", key, value),
                                                             Err(e) => error!("failed to update node details: error={:?}", e),
                                                         };
                                                     }
@@ -649,9 +746,8 @@ impl Discovery for Etcd {
                                                     let value =
                                                         serde_json::to_string(&new_node_details)
                                                             .unwrap();
-                                                    error!("node health check failed: key={}, value={}, error={:?}", key, &value, e);
-                                                    match client.put(key.to_string(), value, None).await {
-                                                        Ok(_put_response) => debug!("node details has been successfully updated"),
+                                                    match client.put(key.to_string(), value.clone(), None).await {
+                                                        Ok(_put_response) => error!("the node is not ready: key={}, value={}, error={:?}", key, value, e),
                                                         Err(e) => error!("failed to update node details: error={:?}", e),
                                                     };
                                                 }
@@ -668,14 +764,11 @@ impl Discovery for Etcd {
                                             };
                                             let value =
                                                 serde_json::to_string(&new_node_details).unwrap();
-                                            error!(
-                                                "connection to the node has been disconnected: key={}, value={}, error={:?}",
-                                                key, &value, e
-                                            );
-                                            match client.put(key.to_string(), value, None).await {
-                                                Ok(_put_response) => debug!(
-                                                    "node details has been successfully updated"
-                                                ),
+                                            match client
+                                                .put(key.to_string(), value.clone(), None)
+                                                .await
+                                            {
+                                                Ok(_put_response) => error!("the node is disconnected: key={}, value={}, error={:?}", key, value, e),
                                                 Err(e) => error!(
                                                     "failed to update node details: error={:?}",
                                                     e
@@ -704,23 +797,23 @@ impl Discovery for Etcd {
                 sleep(Duration::from_millis(interval));
             }
 
-            health_check_thread_running.store(false, Ordering::Relaxed);
-            info!("exit the health check thread");
+            state_check_thread_running.store(false, Ordering::Relaxed);
+            info!("exit the state check thread");
         });
 
         Ok(())
     }
 
     async fn stop_health_check(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if !self.health_check_thread_running.load(Ordering::Relaxed) {
-            warn!("health check thread is not running");
+        if !self.health_checker_running.load(Ordering::Relaxed) {
+            warn!("state check thread is not running");
             return Err(Box::new(IOError::new(
                 ErrorKind::Other,
-                "health check thread is not running",
+                "state check thread is not running",
             )));
         }
 
-        self.stop_health_check_thread.store(true, Ordering::Relaxed);
+        self.stop_health_checker.store(true, Ordering::Relaxed);
 
         Ok(())
     }
