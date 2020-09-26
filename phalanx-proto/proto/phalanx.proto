@@ -30,11 +30,11 @@ message ReadinessReply {
 
 service OverseerService {
     rpc Readiness (ReadinessReq) returns (ReadinessReply) {}
+    rpc Watch (WatchReq) returns (WatchReply) {}
+    rpc Unwatch (UnwatchReq) returns (UnwatchReply) {}
     rpc Register (RegisterReq) returns (RegisterReply) {}
     rpc Unregister (UnregisterReq) returns (UnregisterReply) {}
     rpc Inquire (InquireReq) returns (InquireReply) {}
-    rpc Watch (WatchReq) returns (WatchReply) {}
-    rpc Unwatch (UnwatchReq) returns (UnwatchReply) {}
 }
 
 message RegisterReq {
@@ -76,6 +76,8 @@ message UnwatchReply {}
 
 service IndexService {
     rpc Readiness (ReadinessReq) returns (ReadinessReply) {}
+    rpc Watch (WatchReq) returns (WatchReply) {}
+    rpc Unwatch (UnwatchReq) returns (UnwatchReply) {}
     rpc Get(GetReq) returns (GetReply) {}
     rpc Set(SetReq) returns (SetReply) {}
     rpc Delete(DeleteReq) returns (DeleteReply) {}

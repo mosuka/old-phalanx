@@ -1,7 +1,8 @@
 #[macro_use]
 extern crate clap;
 
-use std::convert::Infallible;
+use std::convert::{Infallible, TryFrom};
+use std::io::{Error as IOError, ErrorKind};
 use std::net::SocketAddr;
 
 use clap::{App, AppSettings, Arg};
@@ -23,11 +24,14 @@ use phalanx_index::server::grpc::IndexService;
 use phalanx_index::server::http::handle;
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::index_service_server::IndexServiceServer;
-use phalanx_proto::phalanx::{NodeDetails, Role, State};
+use phalanx_proto::phalanx::{NodeDetails, Role, State, UnwatchReq, WatchReq};
 use phalanx_storage::storage::minio::Minio;
 use phalanx_storage::storage::minio::TYPE as MINIO_STORAGE_TYPE;
 use phalanx_storage::storage::nop::Nop as NopStorage;
 use phalanx_storage::storage::Storage;
+use std::thread::sleep;
+use std::time::Duration;
+use tonic::Request;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -262,6 +266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let minio_endpoint = matches.value_of("MINIO_ENDPOINT").unwrap();
     let minio_bucket = matches.value_of("MINIO_BUCKET").unwrap();
 
+    // create storage
     let storage: Box<dyn Storage> = match storage_type {
         MINIO_STORAGE_TYPE => Box::new(Minio::new(
             minio_access_key,
@@ -273,11 +278,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         _ => Box::new(NopStorage::new()),
     };
 
+    // create discovery
     let mut discovery: Box<dyn Discovery> = match discovery_type {
         ETCD_DISCOVERY_TYPE => Box::new(Etcd::new(etcd_endpoints, etcd_root)),
         _ => Box::new(NopDiscovery::new()),
     };
 
+    // create index config
     let mut index_config = IndexConfig::new();
     index_config.index_dir = String::from(index_directory);
     index_config.schema_file = String::from(schema_file);
@@ -286,39 +293,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     index_config.indexer_memory_size = indexer_memory_size;
     index_config.unique_key_field = String::from(unique_key_field);
 
-    let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
-    let grpc_service = IndexService::new(index_config, index_name, shard_name, storage);
-    tokio::spawn(
-        TonicServer::builder()
-            .add_service(IndexServiceServer::new(grpc_service))
-            .serve(grpc_addr),
-    );
-    info!("start gRPC server on {}", grpc_addr);
-
-    let grpc_server_url = format!("http://{}:{}", host, grpc_port);
-    let grpc_client = IndexServiceClient::connect(grpc_server_url.clone())
-        .await
-        .unwrap();
-    info!("start gRPC client for {}", &grpc_server_url);
-
-    let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
-    let http_service = make_service_fn(move |_| {
-        let grpc_client = grpc_client.clone();
-        async move { Ok::<_, Infallible>(service_fn(move |req| handle(grpc_client.clone(), req))) }
-    });
-    tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
-    info!("start HTTP server on {}", http_addr);
-
-    // add node to cluster
+    // register the node
     match discovery.get_node(index_name, shard_name, node_name).await {
         Ok(result) => {
             match result {
                 Some(node_details) => {
                     // node exists
                     info!(
-                            "node is already registered: index_name={:?}, shard_name={:?}, node_name={:?}, node_details={:?}",
-                            &index_name, shard_name, node_name, &node_details
-                        );
+                        "node is already registered: index_name={:?}, shard_name={:?}, node_name={:?}, node_details={:?}",
+                        &index_name, shard_name, node_name, &node_details
+                    );
                 }
                 None => {
                     // node does not exist
@@ -340,8 +324,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Err(e) => return Err(e),
     };
 
+    // start gRPC server
+    let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
+    let grpc_service = IndexService::new(
+        index_config,
+        index_name,
+        shard_name,
+        node_name,
+        discovery,
+        storage,
+    );
+    tokio::spawn(
+        TonicServer::builder()
+            .add_service(IndexServiceServer::new(grpc_service))
+            .serve(grpc_addr),
+    );
+    info!("start gRPC server on {}", grpc_addr);
+
+    // create gRPC client
+    let grpc_server_url = format!("http://{}:{}", host, grpc_port);
+    let mut grpc_client = IndexServiceClient::connect(grpc_server_url.clone())
+        .await
+        .unwrap();
+    info!("create gRPC client for {}", &grpc_server_url);
+
+    // start HTTP server
+    let grpc_client2 = grpc_client.clone();
+    let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
+    let http_service = make_service_fn(move |_| {
+        let grpc_client = grpc_client2.clone();
+        async move { Ok::<_, Infallible>(service_fn(move |req| handle(grpc_client.clone(), req))) }
+    });
+    tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
+    info!("start HTTP server on {}", http_addr);
+
+    // watch
+    let watch_req = Request::new(WatchReq { interval: 0 });
+    match grpc_client.watch(watch_req).await {
+        Ok(_) => (),
+        Err(e) => {
+            return Err(Box::try_from(IOError::new(
+                ErrorKind::Other,
+                format!("failed to watch: error={:?}", e),
+            ))
+            .unwrap())
+        }
+    };
+
     signal::ctrl_c().await?;
     info!("ctrl-c received");
+
+    // unwatch
+    let unwatch_req = Request::new(UnwatchReq {});
+    match grpc_client.unwatch(unwatch_req).await {
+        Ok(_) => (),
+        Err(e) => {
+            return Err(Box::try_from(IOError::new(
+                ErrorKind::Other,
+                format!("failed to unwatch: error={:?}", e),
+            ))
+            .unwrap())
+        }
+    };
+
+    sleep(Duration::from_secs(1));
 
     Ok(())
 }
