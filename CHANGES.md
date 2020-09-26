@@ -3,6 +3,7 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
+- Watch cluster #25 @mosuka
 - Add gRPC server to Overseer #24 @mosuka
 - Add overseer #23 @mosuka
 - Upgrade dependencies #22 @mosuka
