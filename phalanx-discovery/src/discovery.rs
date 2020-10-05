@@ -6,6 +6,9 @@ use prometheus::GaugeVec;
 
 use phalanx_proto::phalanx::NodeDetails;
 
+pub const CLUSTER_PATH: &str = "cluster";
+pub const INDEX_META_PATH: &str = "index_meta";
+
 lazy_static! {
     static ref NODE_STATE_GAUGE: GaugeVec = register_gauge_vec!(
         "phalanx_discovery_node_state",
@@ -61,4 +64,27 @@ pub trait Discovery: Send + Sync + 'static {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     async fn stop_health_check(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn get_index_meta(
+        &mut self,
+        index_name: &str,
+        shard_name: &str,
+    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn set_index_meta(
+        &mut self,
+        index_name: &str,
+        shard_name: &str,
+        index_meta: String,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn delete_index_meta(
+        &mut self,
+        index_name: &str,
+        shard_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+    // async fn watch_index_meta(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    //
+    // async fn unwatch_index_meta(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }

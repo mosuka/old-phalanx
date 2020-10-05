@@ -1,9 +1,12 @@
 #[macro_use]
 extern crate clap;
 
-use std::convert::{Infallible, TryFrom};
+use std::convert::Infallible;
+use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
 use std::net::SocketAddr;
+use std::thread::sleep;
+use std::time::Duration;
 
 use clap::{App, AppSettings, Arg};
 use hyper::service::{make_service_fn, service_fn};
@@ -11,6 +14,7 @@ use hyper::Server as HyperServer;
 use log::*;
 use tokio::signal;
 use tonic::transport::Server as TonicServer;
+use tonic::Request;
 
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd, TYPE as ETCD_DISCOVERY_TYPE};
@@ -29,12 +33,9 @@ use phalanx_storage::storage::minio::Minio;
 use phalanx_storage::storage::minio::TYPE as MINIO_STORAGE_TYPE;
 use phalanx_storage::storage::nop::Nop as NopStorage;
 use phalanx_storage::storage::Storage;
-use std::thread::sleep;
-use std::time::Duration;
-use tonic::Request;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     set_logger();
 
     let default_indexer_threads = format!("{}", num_cpus::get().to_owned());
@@ -363,11 +364,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match grpc_client.watch(watch_req).await {
         Ok(_) => (),
         Err(e) => {
-            return Err(Box::try_from(IOError::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 format!("failed to watch: error={:?}", e),
-            ))
-            .unwrap())
+            )))
         }
     };
 
@@ -379,11 +379,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match grpc_client.unwatch(unwatch_req).await {
         Ok(_) => (),
         Err(e) => {
-            return Err(Box::try_from(IOError::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 format!("failed to unwatch: error={:?}", e),
-            ))
-            .unwrap())
+            )))
         }
     };
 

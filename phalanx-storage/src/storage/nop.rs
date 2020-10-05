@@ -21,25 +21,33 @@ impl Storage for Nop {
 
     async fn exist(
         &self,
-        _cluster: &str,
-        _shard: &str,
+        _index_name: &str,
+        _shard_name: &str,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
         Ok(false)
     }
 
     async fn pull_index(
         &self,
-        _cluster: &str,
-        _shard: &str,
+        _index_name: &str,
+        _shard_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
     async fn push_index(
         &self,
-        _cluster: &str,
-        _shard: &str,
+        _index_name: &str,
+        _shard_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
+
+    // async fn sync_index(&mut self, _interval: u64) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //     Ok(())
+    // }
+
+    // async fn unsync_index(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //     Ok(())
+    // }
 }

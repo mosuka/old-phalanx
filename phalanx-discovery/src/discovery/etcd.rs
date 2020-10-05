@@ -16,7 +16,9 @@ use tokio::sync::Mutex;
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::{NodeDetails, ReadinessReq, Role, State};
 
-use crate::discovery::{Discovery, NODE_ROLE_GAUGE, NODE_STATE_GAUGE};
+use crate::discovery::{
+    Discovery, CLUSTER_PATH, INDEX_META_PATH, NODE_ROLE_GAUGE, NODE_STATE_GAUGE,
+};
 
 pub const TYPE: &str = "etcd";
 
@@ -77,7 +79,10 @@ impl Discovery for Etcd {
         shard_name: &str,
         node_name: &str,
     ) -> Result<Option<NodeDetails>, Box<dyn Error + Send + Sync>> {
-        let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
+        let key = format!(
+            "{}/{}/{}/{}/{}.json",
+            &self.root, CLUSTER_PATH, index_name, shard_name, node_name
+        );
         let get_response = match self.client.get(key.clone(), None).await {
             Ok(get_response) => get_response,
             Err(e) => return Err(Box::new(e)),
@@ -99,7 +104,10 @@ impl Discovery for Etcd {
         node_name: &str,
         node_details: NodeDetails,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
+        let key = format!(
+            "{}/{}/{}/{}S/{}.json",
+            &self.root, CLUSTER_PATH, index_name, shard_name, node_name
+        );
         let value = serde_json::to_string(&node_details).unwrap();
         match self.client.put(key, value, None).await {
             Ok(_put_response) => Ok(()),
@@ -113,7 +121,10 @@ impl Discovery for Etcd {
         shard_name: &str,
         node_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let key = format!("{}/{}/{}/{}", &self.root, index_name, shard_name, node_name);
+        let key = format!(
+            "{}/{}/{}/{}/{}.json",
+            &self.root, CLUSTER_PATH, index_name, shard_name, node_name
+        );
         match self.client.delete(key, None).await {
             Ok(_delete_response) => Ok(()),
             Err(e) => Err(Box::new(e)),
@@ -160,12 +171,18 @@ impl Discovery for Etcd {
             }
         };
 
+        let re_str = format!(
+            "^({}/{}/([^/]+)/([^/]+)/([^/]+)\\.json)",
+            &root, CLUSTER_PATH,
+        );
+        let re = Regex::new(&re_str).unwrap();
+
         tokio::spawn(async move {
-            info!("start the watch thread");
+            info!("start the cluster watcher");
             watch_thread_running.store(true, Ordering::Relaxed);
 
             // initialize a local node cache
-            let key = format!("{}/", &root);
+            let key = format!("{}/{}/", &root, CLUSTER_PATH);
             match client
                 .get(key.clone(), Some(GetOptions::new().with_prefix()))
                 .await
@@ -191,7 +208,7 @@ impl Discovery for Etcd {
                         let node_details = if value.is_empty() {
                             None
                         } else {
-                            match serde_json::from_str(value) {
+                            match serde_json::from_str::<NodeDetails>(value) {
                                 Ok(node_details) => Some(node_details),
                                 Err(e) => {
                                     error!("failed to parse JSON: error={:?}", e);
@@ -199,24 +216,57 @@ impl Discovery for Etcd {
                                 }
                             }
                         };
-                        nodes.insert(key.to_string(), node_details.clone());
 
-                        // update node metrics
-                        let tmp_key = &key[&root.len() + 1..];
-                        let tmp_key_vec: Vec<&str> = tmp_key.split('/').collect();
-                        let index_name = *tmp_key_vec.get(0).unwrap();
-                        let shard_name = *tmp_key_vec.get(1).unwrap();
-                        let node_name = *tmp_key_vec.get(2).unwrap();
-                        match node_details {
-                            Some(node_details) => {
-                                NODE_STATE_GAUGE
-                                    .with_label_values(&[index_name, shard_name, node_name])
-                                    .set(node_details.state as f64);
-                                NODE_ROLE_GAUGE
-                                    .with_label_values(&[index_name, shard_name, node_name])
-                                    .set(node_details.role as f64);
+                        // get the shard where the event occurred
+                        match re.captures(key) {
+                            Some(cap) => {
+                                // check key format
+                                let index_name = match cap.get(2) {
+                                    Some(m) => m.as_str(),
+                                    None => {
+                                        error!("index name doesn't match: key={}", key);
+                                        continue;
+                                    }
+                                };
+
+                                let shard_name = match cap.get(3) {
+                                    Some(m) => m.as_str(),
+                                    None => {
+                                        error!("shard name doesn't match: key={}", key);
+                                        continue;
+                                    }
+                                };
+
+                                let node_name = match cap.get(4) {
+                                    Some(m) => m.as_str(),
+                                    None => {
+                                        error!("node name doesn't match: key={}", key);
+                                        continue;
+                                    }
+                                };
+
+                                // update local node cache
+                                nodes.insert(key.to_string(), node_details.clone());
+
+                                // update node metrics
+                                match node_details {
+                                    Some(node_details) => {
+                                        NODE_STATE_GAUGE
+                                            .with_label_values(&[index_name, shard_name, node_name])
+                                            .set(node_details.state as f64);
+                                        NODE_ROLE_GAUGE
+                                            .with_label_values(&[index_name, shard_name, node_name])
+                                            .set(node_details.role as f64);
+                                    }
+                                    None => {
+                                        error!("no node details are available: None");
+                                        continue;
+                                    }
+                                };
                             }
-                            None => {}
+                            None => {
+                                error!("key doesn't match: key={}", key);
+                            }
                         };
                     }
                     debug!("node list has been initialized: nodes={:?}", nodes);
@@ -266,19 +316,49 @@ impl Discovery for Etcd {
                                         }
                                     };
 
-                                    // update local node cache
-                                    let mut nodes = nodes.lock().await;
-                                    match event.event_type() {
-                                        EventType::Put => {
-                                            nodes.insert(key.to_string(), node_details.clone());
+                                    // check key format
+                                    match re.captures(key) {
+                                        Some(cap) => {
+                                            let index_name = match cap.get(2) {
+                                                Some(m) => m.as_str(),
+                                                None => {
+                                                    error!("index name doesn't match: key={}", key);
+                                                    continue;
+                                                }
+                                            };
+
+                                            let shard_name = match cap.get(3) {
+                                                Some(m) => m.as_str(),
+                                                None => {
+                                                    error!("shard name doesn't match: key={}", key);
+                                                    continue;
+                                                }
+                                            };
+
+                                            let node_name = match cap.get(4) {
+                                                Some(m) => m.as_str(),
+                                                None => {
+                                                    error!("node name doesn't match: key={}", key);
+                                                    continue;
+                                                }
+                                            };
+
+                                            // update local node cache
+                                            let mut nodes = nodes.lock().await;
+                                            match event.event_type() {
+                                                EventType::Put => {
+                                                    nodes.insert(
+                                                        key.to_string(),
+                                                        node_details.clone(),
+                                                    );
+                                                }
+                                                EventType::Delete => {
+                                                    nodes.remove(key);
+                                                }
+                                            };
+                                            debug!("node list has changed: nodes={:?}", nodes);
 
                                             // update node metrics
-                                            let tmp_key = &key[&root.len() + 1..];
-                                            let tmp_key_vec: Vec<&str> =
-                                                tmp_key.split('/').collect();
-                                            let index_name = *tmp_key_vec.get(0).unwrap();
-                                            let shard_name = *tmp_key_vec.get(1).unwrap();
-                                            let node_name = *tmp_key_vec.get(2).unwrap();
                                             match node_details {
                                                 Some(node_details) => {
                                                     NODE_STATE_GAUGE
@@ -292,15 +372,16 @@ impl Discovery for Etcd {
                                                         ])
                                                         .set(node_details.role as f64);
                                                 }
-                                                None => {}
+                                                None => {
+                                                    error!("no node details are available: None");
+                                                    continue;
+                                                }
                                             };
                                         }
-                                        EventType::Delete => {
-                                            nodes.remove(key);
+                                        None => {
+                                            error!("key doesn't match: key={}", key);
                                         }
                                     };
-
-                                    debug!("node list has changed: nodes={:?}", nodes);
                                 }
                             }
                         }
@@ -315,7 +396,7 @@ impl Discovery for Etcd {
             }
 
             watch_thread_running.store(false, Ordering::Relaxed);
-            info!("exit the watch thread");
+            info!("exit the cluster watcher");
         });
 
         Ok(())
@@ -326,7 +407,7 @@ impl Discovery for Etcd {
             warn!("the cluster watcher is not running");
             return Err(Box::new(IOError::new(
                 ErrorKind::Other,
-                "watch thread is not running",
+                "the cluster watcher is not running",
             )));
         }
 
@@ -385,16 +466,15 @@ impl Discovery for Etcd {
             }
         };
 
-        tokio::spawn(async move {
-            info!("start the watch thread");
-            role_watch_thread_running.store(true, Ordering::Relaxed);
+        let re_str = format!(
+            "^({}/{}/([^/]+)/([^/]+)/([^/]+)\\.json)",
+            &root, CLUSTER_PATH,
+        );
+        let re = Regex::new(&re_str).unwrap();
 
-            let re_str = if root.is_empty() {
-                "^(/[^/]+/[^/]+)".to_string()
-            } else {
-                format!("^({}/[^/]+/[^/]+)", &root)
-            };
-            let re = Regex::new(&re_str).unwrap();
+        tokio::spawn(async move {
+            info!("start the role watcher");
+            role_watch_thread_running.store(true, Ordering::Relaxed);
 
             loop {
                 let mut watch_stream = watch_stream.lock().await;
@@ -418,199 +498,193 @@ impl Discovery for Etcd {
                                         }
                                     };
 
-                                    // get the shard where the event occurred
-                                    let shard = match re.captures(key) {
-                                        Some(cap) => match cap.get(1) {
-                                            Some(m) => m.as_str(),
-                                            None => {
-                                                debug!("key doesn't match: key={}", key);
-                                                ""
-                                            }
-                                        },
-                                        None => {
-                                            debug!("key doesn't match: key={}", key);
-                                            ""
-                                        }
-                                    };
+                                    // check key format
+                                    match re.captures(key) {
+                                        Some(cap) => {
+                                            let index_name = match cap.get(2) {
+                                                Some(m) => m.as_str(),
+                                                None => {
+                                                    error!("index name doesn't match: key={}", key);
+                                                    continue;
+                                                }
+                                            };
 
-                                    // make a ready candidate a replica
-                                    match client
-                                        .get(
-                                            shard.to_string(),
-                                            Some(GetOptions::new().with_prefix()),
-                                        )
-                                        .await
-                                    {
-                                        Ok(get_response) => {
-                                            for kv in get_response.kvs() {
-                                                let key = match kv.key_str() {
-                                                    Ok(key) => key,
-                                                    Err(e) => {
-                                                        error!("failed to get key: error={:?}", e);
-                                                        continue;
-                                                    }
-                                                };
-                                                let value = match kv.value_str() {
-                                                    Ok(value) => value,
-                                                    Err(e) => {
-                                                        error!(
-                                                            "failed to get value: error={:?}",
-                                                            e
-                                                        );
-                                                        continue;
-                                                    }
-                                                };
+                                            let shard_name = match cap.get(3) {
+                                                Some(m) => m.as_str(),
+                                                None => {
+                                                    error!("shard name doesn't match: key={}", key);
+                                                    continue;
+                                                }
+                                            };
 
-                                                if !value.is_empty() {
-                                                    match serde_json::from_str::<NodeDetails>(value)
-                                                    {
-                                                        Ok(mut node_details) => {
-                                                            if node_details.state
-                                                                == State::Ready as i32
-                                                                && node_details.role
-                                                                    == Role::Candidate as i32
+                                            let sel_key = format!(
+                                                "{}/{}/{}/{}/",
+                                                &root, CLUSTER_PATH, index_name, shard_name
+                                            );
+
+                                            // make a ready candidate a replica
+                                            match client
+                                                .get(
+                                                    sel_key.to_string(),
+                                                    Some(GetOptions::new().with_prefix()),
+                                                )
+                                                .await
+                                            {
+                                                Ok(get_response) => {
+                                                    for kv in get_response.kvs() {
+                                                        let key = match kv.key_str() {
+                                                            Ok(key) => key,
+                                                            Err(e) => {
+                                                                error!("failed to get key: error={:?}", e);
+                                                                continue;
+                                                            }
+                                                        };
+                                                        let value = match kv.value_str() {
+                                                            Ok(value) => value,
+                                                            Err(e) => {
+                                                                error!(
+                                                                    "failed to get value: error={:?}",
+                                                                    e
+                                                                );
+                                                                continue;
+                                                            }
+                                                        };
+
+                                                        if !value.is_empty() {
+                                                            match serde_json::from_str::<NodeDetails>(value)
                                                             {
-                                                                node_details.role =
-                                                                    Role::Replica as i32;
-                                                                let new_value =
-                                                                    serde_json::to_string(
-                                                                        &node_details,
-                                                                    )
-                                                                    .unwrap();
-                                                                match client.put(key.to_string(), new_value.clone(), None).await {
-                                                                    Ok(_put_response) => info!("the role of the node has been changed to replica: key={}, value={}", key, new_value),
-                                                                    Err(e) => error!("failed to update node details: error={:?}", e),
+                                                                Ok(mut node_details) => {
+                                                                    if node_details.state == State::Ready as i32 && node_details.role == Role::Candidate as i32
+                                                                    {
+                                                                        node_details.role = Role::Replica as i32;
+                                                                        let new_value = serde_json::to_string(&node_details).unwrap();
+                                                                        match client.put(key.to_string(), new_value.clone(), None).await {
+                                                                            Ok(_put_response) => info!("the role of the node has been changed to replica: key={}, value={}", key, new_value),
+                                                                            Err(e) => error!("failed to update node details: error={:?}", e),
+                                                                        };
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    error!(
+                                                                        "failed to parse JSON: error={:?}",
+                                                                        e
+                                                                    );
+                                                                }
+                                                            };
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => error!(
+                                                    "failed to get a ready candidate list: error={:?}",
+                                                    e
+                                                ),
+                                            };
+
+                                            // make a ready replica a primary
+                                            match client
+                                                .get(
+                                                    sel_key.to_string(),
+                                                    Some(GetOptions::new().with_prefix()),
+                                                )
+                                                .await
+                                            {
+                                                Ok(get_response) => {
+                                                    let mut primary_exists = false;
+
+                                                    // check whether the shard group has a primary node
+                                                    for kv in get_response.kvs() {
+                                                        let _key = match kv.key_str() {
+                                                            Ok(key) => key,
+                                                            Err(e) => {
+                                                                error!("failed to get key: error={:?}", e);
+                                                                continue;
+                                                            }
+                                                        };
+                                                        let value = match kv.value_str() {
+                                                            Ok(value) => value,
+                                                            Err(e) => {
+                                                                error!(
+                                                                    "failed to get value: error={:?}",
+                                                                    e
+                                                                );
+                                                                continue;
+                                                            }
+                                                        };
+
+                                                        if !value.is_empty() {
+                                                            match serde_json::from_str::<NodeDetails>(value)
+                                                            {
+                                                                Ok(node_details) => {
+                                                                    if node_details.state == State::Ready as i32 && node_details.role == Role::Primary as i32 {
+                                                                        primary_exists = true;
+                                                                    }
+                                                                }
+                                                                Err(e) => {
+                                                                    error!(
+                                                                        "failed to parse JSON: error={:?}",
+                                                                        e
+                                                                    );
+                                                                }
+                                                            };
+                                                        }
+                                                    }
+
+                                                    if !primary_exists {
+                                                        // make one of the replica nodes primary
+                                                        for kv in get_response.kvs() {
+                                                            let key = match kv.key_str() {
+                                                                Ok(key) => key,
+                                                                Err(e) => {
+                                                                    error!(
+                                                                        "failed to get key: error={:?}",
+                                                                        e
+                                                                    );
+                                                                    continue;
+                                                                }
+                                                            };
+                                                            let value = match kv.value_str() {
+                                                                Ok(value) => value,
+                                                                Err(e) => {
+                                                                    error!(
+                                                                        "failed to get value: error={:?}",
+                                                                        e
+                                                                    );
+                                                                    continue;
+                                                                }
+                                                            };
+
+                                                            if !value.is_empty() {
+                                                                match serde_json::from_str::<NodeDetails>(
+                                                                    value,
+                                                                ) {
+                                                                    Ok(mut node_details) => {
+                                                                        if node_details.state == State::Ready as i32 && node_details.role == Role::Replica as i32
+                                                                        {
+                                                                            node_details.role = Role::Primary as i32;
+                                                                            let new_value = serde_json::to_string(&node_details).unwrap();
+                                                                            match client.put(key.to_string(), new_value.clone(), None).await {
+                                                                                Ok(_put_response) => info!("the role of the node has been changed to primary: key={}, value={}", key, new_value),
+                                                                                Err(e) => error!("failed to update node details: error={:?}", e),
+                                                                            };
+                                                                        }
+                                                                    }
+                                                                    Err(e) => {
+                                                                        error!("failed to parse JSON: error={:?}", e);
+                                                                    }
                                                                 };
                                                             }
                                                         }
-                                                        Err(e) => {
-                                                            error!(
-                                                                "failed to parse JSON: error={:?}",
-                                                                e
-                                                            );
-                                                        }
-                                                    };
+                                                    }
                                                 }
-                                            }
+                                                Err(e) => error!(
+                                                    "failed to get a ready replica list: error={:?}",
+                                                    e
+                                                ),
+                                            };
                                         }
-                                        Err(e) => error!(
-                                            "failed to get a ready candidate list: error={:?}",
-                                            e
-                                        ),
-                                    };
-
-                                    // make a ready replica a primary
-                                    match client
-                                        .get(
-                                            shard.to_string(),
-                                            Some(GetOptions::new().with_prefix()),
-                                        )
-                                        .await
-                                    {
-                                        Ok(get_response) => {
-                                            let mut primary_exists = false;
-
-                                            // check whether the shard group has a primary node
-                                            for kv in get_response.kvs() {
-                                                let _key = match kv.key_str() {
-                                                    Ok(key) => key,
-                                                    Err(e) => {
-                                                        error!("failed to get key: error={:?}", e);
-                                                        continue;
-                                                    }
-                                                };
-                                                let value = match kv.value_str() {
-                                                    Ok(value) => value,
-                                                    Err(e) => {
-                                                        error!(
-                                                            "failed to get value: error={:?}",
-                                                            e
-                                                        );
-                                                        continue;
-                                                    }
-                                                };
-
-                                                if !value.is_empty() {
-                                                    match serde_json::from_str::<NodeDetails>(value)
-                                                    {
-                                                        Ok(node_details) => {
-                                                            if node_details.state
-                                                                == State::Ready as i32
-                                                                && node_details.role
-                                                                    == Role::Primary as i32
-                                                            {
-                                                                primary_exists = true;
-                                                            }
-                                                        }
-                                                        Err(e) => {
-                                                            error!(
-                                                                "failed to parse JSON: error={:?}",
-                                                                e
-                                                            );
-                                                        }
-                                                    };
-                                                }
-                                            }
-
-                                            if !primary_exists {
-                                                // make one of the replica nodes primary
-                                                for kv in get_response.kvs() {
-                                                    let key = match kv.key_str() {
-                                                        Ok(key) => key,
-                                                        Err(e) => {
-                                                            error!(
-                                                                "failed to get key: error={:?}",
-                                                                e
-                                                            );
-                                                            continue;
-                                                        }
-                                                    };
-                                                    let value = match kv.value_str() {
-                                                        Ok(value) => value,
-                                                        Err(e) => {
-                                                            error!(
-                                                                "failed to get value: error={:?}",
-                                                                e
-                                                            );
-                                                            continue;
-                                                        }
-                                                    };
-
-                                                    if !value.is_empty() {
-                                                        match serde_json::from_str::<NodeDetails>(
-                                                            value,
-                                                        ) {
-                                                            Ok(mut node_details) => {
-                                                                if node_details.state
-                                                                    == State::Ready as i32
-                                                                    && node_details.role
-                                                                        == Role::Replica as i32
-                                                                {
-                                                                    node_details.role =
-                                                                        Role::Primary as i32;
-                                                                    let new_value =
-                                                                        serde_json::to_string(
-                                                                            &node_details,
-                                                                        )
-                                                                        .unwrap();
-                                                                    match client.put(key.to_string(), new_value.clone(), None).await {
-                                                                        Ok(_put_response) => info!("the role of the node has been changed to primary: key={}, value={}", key, new_value),
-                                                                        Err(e) => error!("failed to update node details: error={:?}", e),
-                                                                    };
-                                                                }
-                                                            }
-                                                            Err(e) => {
-                                                                error!("failed to parse JSON: error={:?}", e);
-                                                            }
-                                                        };
-                                                    }
-                                                }
-                                            }
+                                        None => {
+                                            error!("key doesn't match: key={}", key);
                                         }
-                                        Err(e) => error!(
-                                            "failed to get a ready replica list: error={:?}",
-                                            e
-                                        ),
                                     };
                                 }
                             }
@@ -626,7 +700,7 @@ impl Discovery for Etcd {
             }
 
             role_watch_thread_running.store(false, Ordering::Relaxed);
-            info!("exit the watch thread");
+            info!("exit the role watcher");
         });
 
         Ok(())
@@ -661,8 +735,8 @@ impl Discovery for Etcd {
         &mut self,
         interval: u64,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let state_check_thread_running = Arc::clone(&self.health_checker_running);
-        let stop_state_check_thread = Arc::clone(&self.stop_health_checker);
+        let health_checker_running = Arc::clone(&self.health_checker_running);
+        let stop_health_checker = Arc::clone(&self.stop_health_checker);
         let nodes = Arc::clone(&self.nodes);
         let mut client = self.client.clone();
 
@@ -675,15 +749,15 @@ impl Discovery for Etcd {
         }
 
         tokio::spawn(async move {
-            info!("start a state check thread");
-            state_check_thread_running.store(true, Ordering::Relaxed);
+            info!("start the health checker");
+            health_checker_running.store(true, Ordering::Relaxed);
 
             loop {
-                if stop_state_check_thread.load(Ordering::Relaxed) {
-                    debug!("a request to stop the state check thread has been received");
+                if stop_health_checker.load(Ordering::Relaxed) {
+                    debug!("a request to stop the health checker has been received");
 
                     // restore stop flag to false
-                    stop_state_check_thread.store(false, Ordering::Relaxed);
+                    stop_health_checker.store(false, Ordering::Relaxed);
                     break;
                 } else {
                     let nodes = nodes.lock().await;
@@ -797,8 +871,8 @@ impl Discovery for Etcd {
                 sleep(Duration::from_millis(interval));
             }
 
-            state_check_thread_running.store(false, Ordering::Relaxed);
-            info!("exit the state check thread");
+            health_checker_running.store(false, Ordering::Relaxed);
+            info!("exit the health checker");
         });
 
         Ok(())
@@ -806,15 +880,68 @@ impl Discovery for Etcd {
 
     async fn stop_health_check(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         if !self.health_checker_running.load(Ordering::Relaxed) {
-            warn!("state check thread is not running");
+            warn!("the health checker is not running");
             return Err(Box::new(IOError::new(
                 ErrorKind::Other,
-                "state check thread is not running",
+                "the health checker is not running",
             )));
         }
 
         self.stop_health_checker.store(true, Ordering::Relaxed);
 
         Ok(())
+    }
+
+    async fn get_index_meta(
+        &mut self,
+        index_name: &str,
+        shard_name: &str,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        let key = format!(
+            "{}/{}/{}/{}/meta.json",
+            &self.root, INDEX_META_PATH, index_name, shard_name
+        );
+        let get_response = match self.client.get(key.clone(), None).await {
+            Ok(get_response) => get_response,
+            Err(e) => return Err(Box::new(e)),
+        };
+        match get_response.kvs().first() {
+            Some(kv) => {
+                let index_meta = kv.value_str().unwrap().to_string();
+                Ok(Some(index_meta))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn set_index_meta(
+        &mut self,
+        index_name: &str,
+        shard_name: &str,
+        index_meta: String,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let key = format!(
+            "{}/{}/{}/{}/meta.json",
+            &self.root, INDEX_META_PATH, index_name, shard_name
+        );
+        match self.client.put(key, index_meta, None).await {
+            Ok(_put_response) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    async fn delete_index_meta(
+        &mut self,
+        index_name: &str,
+        shard_name: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let key = format!(
+            "{}/{}/{}/{}/meta.json",
+            &self.root, INDEX_META_PATH, index_name, shard_name
+        );
+        match self.client.delete(key, None).await {
+            Ok(_delete_response) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
     }
 }
