@@ -253,6 +253,7 @@ impl ProtoIndexService for IndexService {
 
         Ok(Response::new(reply))
     }
+
     async fn get(&self, request: Request<GetReq>) -> Result<Response<GetReply>, Status> {
         REQUEST_COUNTER.with_label_values(&["get"]).inc();
         let timer = REQUEST_HISTOGRAM.with_label_values(&["get"]).start_timer();

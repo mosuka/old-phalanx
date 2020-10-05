@@ -2,6 +2,10 @@ use std::error::Error;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
+// use std::sync::atomic::{AtomicBool, Ordering};
+// use std::sync::Arc;
+// use std::thread::sleep;
+// use std::time::Duration;
 
 use async_std::task::block_on;
 use async_trait::async_trait;
@@ -28,6 +32,8 @@ pub struct Minio {
     pub client: S3Client,
     bucket: String,
     index_dir: String,
+    // stop_index_syncer: Arc<AtomicBool>,
+    // index_syncer_running: Arc<AtomicBool>,
 }
 
 impl Minio {
@@ -66,6 +72,8 @@ impl Minio {
             client,
             bucket: bucket.to_string(),
             index_dir: index_dir.to_string(),
+            // stop_index_syncer: Arc::new(AtomicBool::new(false)),
+            // index_syncer_running: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -254,10 +262,10 @@ impl Storage for Minio {
 
     async fn exist(
         &self,
-        cluster: &str,
-        shard: &str,
+        index_name: &str,
+        shard_name: &str,
     ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let key = format!("{}/{}", cluster, shard);
+        let key = format!("{}/{}", index_name, shard_name);
 
         match self.list(&key).await {
             Ok(keys) => {
@@ -273,10 +281,10 @@ impl Storage for Minio {
 
     async fn pull_index(
         &self,
-        cluster: &str,
-        shard: &str,
+        index_name: &str,
+        shard_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let key = format!("{}/{}", cluster, shard);
+        let key = format!("{}/{}", index_name, shard_name);
 
         // list segments in object storage
         let mut object_names = match self.list_segments(&key).await {
@@ -343,10 +351,10 @@ impl Storage for Minio {
 
     async fn push_index(
         &self,
-        cluster: &str,
-        shard: &str,
+        index_name: &str,
+        shard_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let key = format!("{}/{}", cluster, shard);
+        let key = format!("{}/{}", index_name, shard_name);
 
         // list segments in local index directory
         let index = Index::open_in_dir(&self.index_dir).unwrap();
@@ -404,4 +412,57 @@ impl Storage for Minio {
 
         Ok(())
     }
+
+    // async fn sync_index(&mut self, interval: u64) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //     let index_syncer_running = Arc::clone(&self.index_syncer_running);
+    //     let stop_index_syncer = Arc::clone(&self.stop_index_syncer);
+    //     let client = self.client.clone();
+    //
+    //     if self.index_syncer_running.load(Ordering::Relaxed) {
+    //         warn!("the index syncer is already running");
+    //         return Err(Box::new(IOError::new(
+    //             ErrorKind::Other,
+    //             "the index syncer is already running",
+    //         )));
+    //     }
+    //
+    //     tokio::spawn(async move {
+    //         info!("start an index syncer");
+    //         index_syncer_running.store(true, Ordering::Relaxed);
+    //
+    //         loop {
+    //             if stop_index_syncer.load(Ordering::Relaxed) {
+    //                 debug!("a request to stop the index syncer has been received");
+    //
+    //                 // restore stop flag to false
+    //                 stop_index_syncer.store(false, Ordering::Relaxed);
+    //                 break;
+    //             } else {
+    //                 // TODO
+    //
+    //             }
+    //
+    //             sleep(Duration::from_millis(interval));
+    //         }
+    //
+    //         index_syncer_running.store(false, Ordering::Relaxed);
+    //         info!("exit the index syncer");
+    //     });
+    //
+    //     Ok(())
+    // }
+
+    // async fn unsync_index(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //     if !self.index_syncer_running.load(Ordering::Relaxed) {
+    //         warn!("state check thread is not running");
+    //         return Err(Box::new(IOError::new(
+    //             ErrorKind::Other,
+    //             "state check thread is not running",
+    //         )));
+    //     }
+    //
+    //     self.stop_index_syncer.store(true, Ordering::Relaxed);
+    //
+    //     Ok(())
+    // }
 }

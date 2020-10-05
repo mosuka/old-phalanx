@@ -76,4 +76,29 @@ impl Discovery for Nop {
     async fn stop_health_check(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
+
+    async fn get_index_meta(
+        &mut self,
+        _index_name: &str,
+        _shard_name: &str,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        Ok(None)
+    }
+
+    async fn set_index_meta(
+        &mut self,
+        _index_name: &str,
+        _shard_name: &str,
+        _index_meta: String,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn delete_index_meta(
+        &mut self,
+        _index_name: &str,
+        _shard_name: &str,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        Ok(())
+    }
 }

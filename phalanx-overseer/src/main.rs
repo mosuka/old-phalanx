@@ -2,6 +2,7 @@
 extern crate clap;
 
 use std::convert::{Infallible, TryFrom};
+use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
 use std::net::SocketAddr;
 use std::thread::sleep;
@@ -25,7 +26,7 @@ use phalanx_proto::phalanx::overseer_service_server::OverseerServiceServer;
 use phalanx_proto::phalanx::{UnwatchReq, WatchReq};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     set_logger();
 
     let app = App::new(crate_name!())
@@ -127,10 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // create discovery
     let discovery: Box<dyn Discovery> = match discovery_type {
-        ETCD_TYPE => {
-            info!("enable etcd");
-            Box::new(EtcdDiscovery::new(etcd_endpoints, etcd_root))
-        }
+        ETCD_TYPE => Box::new(EtcdDiscovery::new(etcd_endpoints, etcd_root)),
         _ => {
             return Err(Box::try_from(IOError::new(
                 ErrorKind::Other,
