@@ -1,11 +1,9 @@
 use std::error::Error;
-use std::fs;
-use std::io::ErrorKind;
-use std::path::Path;
+// use std::fs;
+// use std::io::ErrorKind;
+// use std::path::Path;
 // use std::sync::atomic::{AtomicBool, Ordering};
 // use std::sync::Arc;
-// use std::thread::sleep;
-// use std::time::Duration;
 
 use async_std::task::block_on;
 use async_trait::async_trait;
@@ -17,45 +15,55 @@ use rusoto_s3::{
     CreateBucketConfiguration, CreateBucketRequest, DeleteObjectRequest, GetObjectRequest,
     ListObjectsRequest, PutObjectRequest, S3Client, S3,
 };
-use serde_json::Value;
-use tantivy::Index;
-use tokio::fs::{create_dir_all, File};
-use tokio::io;
-use tokio::prelude::*;
-use walkdir::WalkDir;
+use serde::{Deserialize, Serialize};
+// use serde_json::Value;
+// use tokio::fs::File;
+// use tokio::io;
+use tokio::io::AsyncReadExt;
 
 use crate::storage::Storage;
 
 pub const TYPE: &str = "minio";
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct MinioConfig {
+    pub access_key: String,
+    pub secret_key: String,
+    pub endpoint: String,
+    pub bucket: String,
+}
+
+#[derive(Clone)]
 pub struct Minio {
-    pub client: S3Client,
-    bucket: String,
-    index_dir: String,
+    config: MinioConfig,
+    client: S3Client,
+    // bucket: String,
+    // index_dir: String,
     // stop_index_syncer: Arc<AtomicBool>,
     // index_syncer_running: Arc<AtomicBool>,
 }
 
 impl Minio {
     pub fn new(
-        access_key: &str,
-        secret_key: &str,
-        endpoint: &str,
-        bucket: &str,
-        index_dir: &str,
+        // access_key: &str,
+        // secret_key: &str,
+        // endpoint: &str,
+        // bucket: &str,
+        // index_dir: &str,
+        config: MinioConfig,
     ) -> Minio {
         let credentials =
-            StaticProvider::new_minimal(access_key.to_string(), secret_key.to_string());
+            StaticProvider::new_minimal(config.access_key.clone(), config.secret_key.clone());
 
         let region = Region::Custom {
             name: "us-east-2".to_string(),
-            endpoint: endpoint.to_string(),
+            endpoint: config.endpoint.clone(),
         };
 
         let client = S3Client::new_with(HttpClient::new().unwrap(), credentials, region);
 
         let future = client.create_bucket(CreateBucketRequest {
-            bucket: bucket.to_string(),
+            bucket: config.bucket.clone(),
             create_bucket_configuration: Some(CreateBucketConfiguration {
                 location_constraint: Some("us-east-2".to_string()),
             }),
@@ -69,188 +77,13 @@ impl Minio {
         };
 
         Minio {
+            config,
             client,
-            bucket: bucket.to_string(),
-            index_dir: index_dir.to_string(),
+            // bucket: bucket.to_string(),
+            // index_dir: index_dir.to_string(),
             // stop_index_syncer: Arc::new(AtomicBool::new(false)),
             // index_syncer_running: Arc::new(AtomicBool::new(false)),
         }
-    }
-
-    async fn list_segments(
-        &self,
-        key: &str,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-        // Retrieves a segment file list of an index stored in object storage
-        let keys = match self
-            .client
-            .get_object(GetObjectRequest {
-                bucket: self.bucket.clone(),
-                key: format!("{}/{}", key, ".managed.json"),
-                ..Default::default()
-            })
-            .await
-        {
-            Ok(output) => {
-                let mut keys = Vec::new();
-
-                let mut content = String::new();
-                output
-                    .body
-                    .unwrap()
-                    .into_async_read()
-                    .read_to_string(&mut content)
-                    .await
-                    .unwrap();
-
-                let value: Value = serde_json::from_str(&content).unwrap();
-                for v in value.as_array().unwrap() {
-                    // exclude meta.json
-                    if v.as_str().unwrap() != "meta.json" {
-                        keys.push(String::from(v.as_str().unwrap()));
-                    }
-                }
-
-                keys
-            }
-            Err(e) => return Err(Box::new(e)),
-        };
-
-        Ok(keys)
-    }
-
-    async fn list(
-        &self,
-        key: &str,
-    ) -> Result<Vec<String>, Box<dyn std::error::Error + Send + Sync>> {
-        // list
-        let keys = match self
-            .client
-            .list_objects(ListObjectsRequest {
-                bucket: self.bucket.clone(),
-                prefix: Some(key.to_string()),
-                ..Default::default()
-            })
-            .await
-        {
-            Ok(output) => {
-                let mut keys = Vec::new();
-
-                match output.contents {
-                    Some(contents) => {
-                        for content in contents {
-                            let k = content.key.unwrap();
-                            // cluster1/shard1/meta.json -> meta.json
-                            let p = Path::new(&k).strip_prefix(key).unwrap();
-                            keys.push(String::from(p.to_str().unwrap()));
-                        }
-                    }
-                    None => (),
-                }
-
-                keys
-            }
-            Err(e) => return Err(Box::new(e)),
-        };
-
-        Ok(keys)
-    }
-
-    async fn push(
-        &self,
-        path: &str,
-        key: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!("push: {} to {}", path, key);
-
-        let file_path = Path::new(path);
-        if !file_path.exists() {
-            debug!("file does not exist: {}", path);
-            return Ok(());
-        }
-
-        // read file
-        let mut file = File::open(path).await.unwrap();
-        let mut data: Vec<u8> = Vec::new();
-        file.read_to_end(&mut data).await.unwrap();
-
-        // put
-        match self
-            .client
-            .put_object(PutObjectRequest {
-                bucket: self.bucket.clone(),
-                key: key.to_string(),
-                body: Some(ByteStream::from(data)),
-                ..Default::default()
-            })
-            .await
-        {
-            Ok(_output) => (),
-            Err(e) => return Err(Box::new(e)),
-        };
-
-        Ok(())
-    }
-
-    async fn pull(
-        &self,
-        key: &str,
-        path: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!("pull: {} to {}", key, path);
-
-        // get object
-        let output = match self
-            .client
-            .get_object(GetObjectRequest {
-                bucket: self.bucket.clone(),
-                key: key.to_string(),
-                ..Default::default()
-            })
-            .await
-        {
-            Ok(output) => output,
-            Err(e) => return Err(Box::new(e)),
-        };
-
-        // create directory
-        let parent = Path::new(path).parent().unwrap();
-        match create_dir_all(parent).await {
-            Ok(_) => debug!("create directory: {}", parent.to_str().unwrap()),
-            Err(e) => {
-                if e.kind() == ErrorKind::AlreadyExists {
-                    debug!("already exists: {}", parent.to_str().unwrap())
-                } else {
-                    return Err(Box::new(e));
-                }
-            }
-        };
-
-        // download file
-        let mut data = output.body.unwrap().into_async_read();
-        let mut file = File::create(path).await.unwrap();
-        io::copy(&mut data, &mut file).await.unwrap();
-
-        Ok(())
-    }
-
-    async fn delete(&self, key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!("delete: {}", key);
-
-        match self
-            .client
-            .delete_object(DeleteObjectRequest {
-                bucket: self.bucket.clone(),
-                key: String::from(key),
-                ..Default::default()
-            })
-            .await
-        {
-            Ok(_output) => (),
-            Err(e) => return Err(Box::new(e)),
-        };
-
-        Ok(())
     }
 }
 
@@ -260,208 +93,331 @@ impl Storage for Minio {
         TYPE
     }
 
-    async fn exist(
-        &self,
-        index_name: &str,
-        shard_name: &str,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        let key = format!("{}/{}", index_name, shard_name);
-
-        match self.list(&key).await {
-            Ok(keys) => {
-                if keys.len() > 0 {
-                    Ok(true)
-                } else {
+    async fn exist(&self, key: &str) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        match self
+            .client
+            .get_object(GetObjectRequest {
+                bucket: self.config.bucket.clone(),
+                key: key.to_string(),
+                ..Default::default()
+            })
+            .await
+        {
+            Ok(output) => match output.body {
+                Some(_sb) => Ok(true),
+                None => {
+                    debug!("empty body");
                     Ok(false)
                 }
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    async fn pull_index(
-        &self,
-        index_name: &str,
-        shard_name: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let key = format!("{}/{}", index_name, shard_name);
-
-        // list segments in object storage
-        let mut object_names = match self.list_segments(&key).await {
-            Ok(segments) => segments,
-            Err(e) => return Err(e),
-        };
-        // add metadata files
-        object_names.push(String::from(".managed.json"));
-        object_names.push(String::from("meta.json"));
-
-        // pull objects from object storage
-        for object_name in object_names.clone() {
-            let objct_key = format!("{}/{}", &key, &object_name);
-            let file_path = String::from(
-                Path::new(&self.index_dir)
-                    .join(&object_name)
-                    .to_str()
-                    .unwrap(),
-            );
-
-            match self.pull(&objct_key, &file_path).await {
-                Ok(_) => (),
-                Err(e) => {
-                    return Err(e);
-                }
-            };
-        }
-
-        // list all files in a local index
-        let mut file_names = Vec::new();
-        for entry in WalkDir::new(&self.index_dir)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-        {
-            let file_name = entry.file_name().to_str().unwrap();
-            // exclude lock files
-            if !file_name.ends_with(".lock") {
-                file_names.push(String::from(file_name));
-            }
-        }
-
-        // remove unnecessary index files from local index
-        for file_name in file_names {
-            if !object_names.contains(&file_name) {
-                let file_path = String::from(
-                    Path::new(&self.index_dir)
-                        .join(&file_name)
-                        .to_str()
-                        .unwrap(),
-                );
-                match fs::remove_file(&file_path) {
-                    Ok(()) => info!("delete: {}", &file_path),
-                    Err(e) => {
-                        return Err(Box::new(e));
-                    }
-                };
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn push_index(
-        &self,
-        index_name: &str,
-        shard_name: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let key = format!("{}/{}", index_name, shard_name);
-
-        // list segments in local index directory
-        let index = Index::open_in_dir(&self.index_dir).unwrap();
-        let mut index_files = Vec::new();
-        for segment in index.searchable_segments().unwrap() {
-            for segment_file_path in segment.meta().list_files() {
-                let segment_file = String::from(segment_file_path.to_str().unwrap());
-                index_files.push(segment_file);
-            }
-        }
-        // add metadata files
-        index_files.push(String::from(".managed.json"));
-        index_files.push(String::from("meta.json"));
-
-        // push files to object storage
-        for index_file in index_files.clone() {
-            let file_path = String::from(
-                Path::new(&self.index_dir)
-                    .join(&index_file)
-                    .to_str()
-                    .unwrap(),
-            );
-            let object_key = format!("{}/{}", &key, &index_file);
-
-            match self.push(&file_path, &object_key).await {
-                Ok(_) => (),
-                Err(e) => {
-                    return Err(e);
-                }
-            };
-        }
-
-        // list all objects under the specified key
-        let object_names = match self.list(&key).await {
-            Ok(keys) => keys,
+            },
             Err(e) => {
-                return Err(e);
-            }
-        };
-
-        // remove unnecessary objects from object storage
-        for object_name in object_names {
-            if !index_files.contains(&object_name) {
-                // meta.json -> cluster1/shard1/meta.json
-                let object_key = String::from(Path::new(&key).join(&object_name).to_str().unwrap());
-
-                match self.delete(&object_key).await {
-                    Ok(_) => (),
-                    Err(e) => {
-                        return Err(e);
-                    }
-                };
+                debug!("failed to get meta.json: error={:?}", e);
+                Ok(false)
             }
         }
-
-        Ok(())
     }
 
-    // async fn sync_index(&mut self, interval: u64) -> Result<(), Box<dyn Error + Send + Sync>> {
-    //     let index_syncer_running = Arc::clone(&self.index_syncer_running);
-    //     let stop_index_syncer = Arc::clone(&self.stop_index_syncer);
-    //     let client = self.client.clone();
+    async fn get(&self, key: &str) -> Result<Option<Vec<u8>>, Box<dyn Error + Send + Sync>> {
+        match self
+            .client
+            .get_object(GetObjectRequest {
+                bucket: self.config.bucket.clone(),
+                key: key.to_string(),
+                ..Default::default()
+            })
+            .await
+        {
+            Ok(output) => {
+                let mut content = Vec::new();
+                match output.body {
+                    Some(sb) => match sb.into_async_read().read_to_end(&mut content).await {
+                        Ok(_s) => Ok(Some(content)),
+                        Err(e) => {
+                            error!("failed to read body: error={:?}", e);
+                            Ok(None)
+                        }
+                    },
+                    None => {
+                        error!("empty body");
+                        Ok(None)
+                    }
+                }
+            }
+            Err(e) => {
+                error!("failed to get meta.json: error={:?}", e);
+                Err(Box::new(e))
+            }
+        }
+    }
+
+    async fn list(&self, prefix: &str) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        match self
+            .client
+            .list_objects(ListObjectsRequest {
+                bucket: self.config.bucket.clone(),
+                prefix: Some(prefix.to_string()),
+                ..Default::default()
+            })
+            .await
+        {
+            Ok(output) => {
+                let mut keys = Vec::new();
+                match output.contents {
+                    Some(contents) => {
+                        for content in contents {
+                            keys.push(content.key.unwrap());
+                        }
+                    }
+                    None => (),
+                }
+
+                Ok(keys)
+            }
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    async fn set(&self, key: &str, content: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>> {
+        match self
+            .client
+            .put_object(PutObjectRequest {
+                bucket: self.config.bucket.clone(),
+                key: key.to_string(),
+                body: Some(ByteStream::from(content.to_vec())),
+                ..Default::default()
+            })
+            .await
+        {
+            Ok(_output) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    async fn delete(&self, key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        match self
+            .client
+            .delete_object(DeleteObjectRequest {
+                bucket: self.config.bucket.clone(),
+                key: key.to_string(),
+                ..Default::default()
+            })
+            .await
+        {
+            Ok(_output) => Ok(()),
+            Err(e) => Err(Box::new(e)),
+        }
+    }
+
+    // async fn pull(
+    //     &self,
+    //     index_name: &str,
+    //     shard_name: &str,
+    // ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //     // list objects
+    //     let managed_json_key = format!("{}/{}/.managed.json", index_name, shard_name);
+    //     let mut object_names = match self
+    //         .client
+    //         .get_object(GetObjectRequest {
+    //             bucket: self.bucket.clone(),
+    //             key: managed_json_key,
+    //             ..Default::default()
+    //         })
+    //         .await
+    //     {
+    //         Ok(output) => {
+    //             // read content
+    //             let mut content = String::new();
+    //             output
+    //                 .body
+    //                 .unwrap()
+    //                 .into_async_read()
+    //                 .read_to_string(&mut content)
+    //                 .await
+    //                 .unwrap();
     //
-    //     if self.index_syncer_running.load(Ordering::Relaxed) {
-    //         warn!("the index syncer is already running");
-    //         return Err(Box::new(IOError::new(
-    //             ErrorKind::Other,
-    //             "the index syncer is already running",
-    //         )));
+    //             // parse content
+    //             let value: Value = serde_json::from_str(&content).unwrap();
+    //
+    //             // create object name list
+    //             let mut object_names = Vec::new();
+    //             for object_name in value.as_array().unwrap() {
+    //                 object_names.push(String::from(object_name.as_str().unwrap()));
+    //             }
+    //             object_names
+    //         }
+    //         Err(e) => return Err(Box::new(e)),
+    //     };
+    //     object_names.push(".managed.json".to_string());
+    //
+    //     // pull objects
+    //     for object_name in object_names.clone() {
+    //         let object_key = format!("{}/{}/{}", index_name, shard_name, &object_name);
+    //         let file_path = String::from(
+    //             Path::new(&self.index_dir)
+    //                 .join(&object_key)
+    //                 .to_str()
+    //                 .unwrap(),
+    //         );
+    //
+    //         // get object
+    //         match self
+    //             .client
+    //             .get_object(GetObjectRequest {
+    //                 bucket: self.bucket.clone(),
+    //                 key: object_key,
+    //                 ..Default::default()
+    //             })
+    //             .await
+    //         {
+    //             Ok(output) => {
+    //                 // copy to file
+    //                 let mut data = output.body.unwrap().into_async_read();
+    //                 let mut file = File::create(file_path).await.unwrap();
+    //                 io::copy(&mut data, &mut file).await.unwrap();
+    //             }
+    //             Err(e) => return Err(Box::new(e)),
+    //         };
     //     }
     //
-    //     tokio::spawn(async move {
-    //         info!("start an index syncer");
-    //         index_syncer_running.store(true, Ordering::Relaxed);
-    //
-    //         loop {
-    //             if stop_index_syncer.load(Ordering::Relaxed) {
-    //                 debug!("a request to stop the index syncer has been received");
-    //
-    //                 // restore stop flag to false
-    //                 stop_index_syncer.store(false, Ordering::Relaxed);
-    //                 break;
-    //             } else {
-    //                 // TODO
-    //
-    //             }
-    //
-    //             sleep(Duration::from_millis(interval));
+    //     // list files
+    //     let mut file_names = Vec::new();
+    //     for entry in WalkDir::new(&self.index_dir)
+    //         .follow_links(true)
+    //         .into_iter()
+    //         .filter_map(|e| e.ok())
+    //         .filter(|e| e.file_type().is_file())
+    //     {
+    //         let file_name = entry.file_name().to_str().unwrap();
+    //         // exclude lock files
+    //         if !file_name.ends_with(".lock") {
+    //             file_names.push(String::from(file_name));
     //         }
+    //     }
     //
-    //         index_syncer_running.store(false, Ordering::Relaxed);
-    //         info!("exit the index syncer");
-    //     });
+    //     // remove unnecessary files
+    //     for file_name in file_names {
+    //         if !object_names.contains(&file_name) {
+    //             let file_path = String::from(
+    //                 Path::new(&self.index_dir)
+    //                     .join(&file_name)
+    //                     .to_str()
+    //                     .unwrap(),
+    //             );
+    //             match fs::remove_file(&file_path) {
+    //                 Ok(()) => debug!("delete: {}", &file_path),
+    //                 Err(e) => {
+    //                     return Err(Box::new(e));
+    //                 }
+    //             };
+    //         }
+    //     }
     //
     //     Ok(())
     // }
 
-    // async fn unsync_index(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-    //     if !self.index_syncer_running.load(Ordering::Relaxed) {
-    //         warn!("state check thread is not running");
-    //         return Err(Box::new(IOError::new(
-    //             ErrorKind::Other,
-    //             "state check thread is not running",
-    //         )));
+    // async fn push(
+    //     &self,
+    //     index_name: &str,
+    //     shard_name: &str,
+    // ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //     // list files
+    //     let mut file_names = Vec::new();
+    //     for entry in WalkDir::new(&self.index_dir)
+    //         .follow_links(true)
+    //         .into_iter()
+    //         .filter_map(|e| e.ok())
+    //         .filter(|e| e.file_type().is_file())
+    //     {
+    //         let file_name = entry.file_name().to_str().unwrap();
+    //         // exclude lock files
+    //         if !file_name.ends_with(".lock") {
+    //             file_names.push(String::from(file_name));
+    //         }
     //     }
     //
-    //     self.stop_index_syncer.store(true, Ordering::Relaxed);
+    //     // push files
+    //     for file_name in file_names.clone() {
+    //         let file_path = String::from(
+    //             Path::new(&self.index_dir)
+    //                 .join(&file_name)
+    //                 .to_str()
+    //                 .unwrap(),
+    //         );
+    //
+    //         // read file
+    //         let mut file = File::open(&file_path).await.unwrap();
+    //         let mut data: Vec<u8> = Vec::new();
+    //         file.read_to_end(&mut data).await.unwrap();
+    //
+    //         let object_key = format!("{}/{}/{}", index_name, shard_name, &file_name);
+    //
+    //         // put object
+    //         match self
+    //             .client
+    //             .put_object(PutObjectRequest {
+    //                 bucket: self.bucket.clone(),
+    //                 key: object_key,
+    //                 body: Some(ByteStream::from(data)),
+    //                 ..Default::default()
+    //             })
+    //             .await
+    //         {
+    //             Ok(_output) => (),
+    //             Err(e) => return Err(Box::new(e)),
+    //         };
+    //     }
+    //
+    //     let shard_key = format!("{}/{}/", index_name, shard_name);
+    //
+    //     // list objects
+    //     let object_names = match self
+    //         .client
+    //         .list_objects(ListObjectsRequest {
+    //             bucket: self.bucket.clone(),
+    //             prefix: Some(shard_key.clone()),
+    //             ..Default::default()
+    //         })
+    //         .await
+    //     {
+    //         Ok(output) => {
+    //             let mut object_names = Vec::new();
+    //             match output.contents {
+    //                 Some(contents) => {
+    //                     for content in contents {
+    //                         let k = content.key.unwrap();
+    //                         // cluster1/shard1/meta.json -> meta.json
+    //                         let p = Path::new(&k).strip_prefix(&shard_key).unwrap();
+    //                         object_names.push(String::from(p.to_str().unwrap()));
+    //                     }
+    //                 }
+    //                 None => (),
+    //             }
+    //
+    //             object_names
+    //         }
+    //         Err(e) => return Err(Box::new(e)),
+    //     };
+    //
+    //     // remove unnecessary objects
+    //     for object_name in object_names {
+    //         if !file_names.contains(&object_name) {
+    //             // e.g. meta.json -> cluster1/shard1/meta.json
+    //             let object_key = format!("{}/{}/{}", index_name, shard_name, &object_name);
+    //
+    //             match self
+    //                 .client
+    //                 .delete_object(DeleteObjectRequest {
+    //                     bucket: self.bucket.clone(),
+    //                     key: object_key,
+    //                     ..Default::default()
+    //                 })
+    //                 .await
+    //             {
+    //                 Ok(_output) => (),
+    //                 Err(e) => return Err(Box::new(e)),
+    //             };
+    //         }
+    //     }
     //
     //     Ok(())
     // }

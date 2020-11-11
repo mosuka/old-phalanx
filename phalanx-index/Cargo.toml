@@ -13,6 +13,7 @@ async-std = "1.6"
 cang-jie = "0.10"
 clap = "2.33.0"
 cloud-storage = "0.6"
+dyn-clone = "1.0"
 futures-util = "0.3"
 hyper = "0.13"
 jieba-rs = "0.6"
@@ -26,6 +27,7 @@ serde_json = "1.0"
 tantivy = "0.13"
 tokio = { version = "0.2", features = [ "full" ] }
 tonic = "0.3"
+walkdir = "2.3"
 
 phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
 phalanx-discovery = { version = "0.1.0", path = "../phalanx-discovery" }

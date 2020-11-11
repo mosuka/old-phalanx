@@ -1,14 +1,11 @@
-#[macro_use]
-extern crate clap;
-
-use std::convert::Infallible;
+use std::convert::{Infallible, TryFrom};
 use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
 use std::net::SocketAddr;
 use std::thread::sleep;
 use std::time::Duration;
 
-use clap::{App, AppSettings, Arg};
+use clap::{crate_authors, crate_name, crate_version, App, AppSettings, Arg};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server as HyperServer;
 use log::*;
@@ -17,22 +14,25 @@ use tonic::transport::Server as TonicServer;
 use tonic::Request;
 
 use phalanx_common::log::set_logger;
-use phalanx_discovery::discovery::etcd::{Etcd, TYPE as ETCD_DISCOVERY_TYPE};
+use phalanx_discovery::discovery::etcd::{
+    Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE,
+};
 use phalanx_discovery::discovery::nop::Nop as NopDiscovery;
-use phalanx_discovery::discovery::Discovery;
+use phalanx_discovery::discovery::{DiscoveryContainer, CLUSTER_PATH};
 use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
 };
+use phalanx_index::index::Index;
 use phalanx_index::server::grpc::IndexService;
 use phalanx_index::server::http::handle;
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::index_service_server::IndexServiceServer;
 use phalanx_proto::phalanx::{NodeDetails, Role, State, UnwatchReq, WatchReq};
-use phalanx_storage::storage::minio::Minio;
 use phalanx_storage::storage::minio::TYPE as MINIO_STORAGE_TYPE;
+use phalanx_storage::storage::minio::{Minio, MinioConfig};
 use phalanx_storage::storage::nop::Nop as NopStorage;
-use phalanx_storage::storage::Storage;
+use phalanx_storage::storage::StorageContainer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -228,6 +228,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let index_directory = matches.value_of("INDEX_DIRECTORY").unwrap();
     let schema_file = matches.value_of("SCHEMA_FILE").unwrap();
+    let unique_key_field = matches.value_of("UNIQUE_ID_FIELD").unwrap();
     let tokenizer_file = matches.value_of("TOKENIZER_FILE").unwrap();
     let indexer_threads = matches
         .value_of("INDEXER_THREADS")
@@ -239,7 +240,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .unwrap()
         .parse::<usize>()
         .unwrap();
-    let unique_key_field = matches.value_of("UNIQUE_ID_FIELD").unwrap();
 
     let index_name = matches.value_of("INDEX_NAME").unwrap();
     let shard_name = matches.value_of("SHARD_NAME").unwrap();
@@ -267,74 +267,122 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let minio_endpoint = matches.value_of("MINIO_ENDPOINT").unwrap();
     let minio_bucket = matches.value_of("MINIO_BUCKET").unwrap();
 
-    // create storage
-    let storage: Box<dyn Storage> = match storage_type {
-        MINIO_STORAGE_TYPE => Box::new(Minio::new(
-            minio_access_key,
-            minio_secret_key,
-            minio_endpoint,
-            minio_bucket,
-            index_directory,
-        )),
-        _ => Box::new(NopStorage::new()),
-    };
-
     // create discovery
-    let mut discovery: Box<dyn Discovery> = match discovery_type {
-        ETCD_DISCOVERY_TYPE => Box::new(Etcd::new(etcd_endpoints, etcd_root)),
-        _ => Box::new(NopDiscovery::new()),
+    let mut discovery_container: DiscoveryContainer = match discovery_type {
+        ETCD_DISCOVERY_TYPE => {
+            let config = EtcdConfig {
+                endpoints: etcd_endpoints.iter().map(|s| s.to_string()).collect(),
+                root: Some(etcd_root.to_string()),
+                auth: None,
+                tls_ca_path: None,
+                tls_cert_path: None,
+                tls_key_path: None,
+            };
+            DiscoveryContainer {
+                discovery: Box::new(EtcdDiscovery::new(config)),
+            }
+        }
+        _ => DiscoveryContainer {
+            discovery: Box::new(NopDiscovery::new()),
+        },
     };
 
-    // create index config
-    let mut index_config = IndexConfig::new();
-    index_config.index_dir = String::from(index_directory);
-    index_config.schema_file = String::from(schema_file);
-    index_config.tokenizer_file = String::from(tokenizer_file);
-    index_config.indexer_threads = indexer_threads;
-    index_config.indexer_memory_size = indexer_memory_size;
-    index_config.unique_key_field = String::from(unique_key_field);
+    // create storage
+    let storage_container: StorageContainer = match storage_type {
+        MINIO_STORAGE_TYPE => {
+            let config = MinioConfig {
+                access_key: minio_access_key.to_string(),
+                secret_key: minio_secret_key.to_string(),
+                endpoint: minio_endpoint.to_string(),
+                bucket: minio_bucket.to_string(),
+            };
+            StorageContainer {
+                storage: Box::new(Minio::new(config)),
+            }
+        }
+        _ => StorageContainer {
+            storage: Box::new(NopStorage::new()),
+        },
+    };
 
-    // register the node
-    match discovery.get_node(index_name, shard_name, node_name).await {
-        Ok(result) => {
-            match result {
-                Some(node_details) => {
-                    // node exists
+    // create index
+    let index_config = IndexConfig {
+        index_dir: String::from(index_directory),
+        schema_file: String::from(schema_file),
+        unique_key_field: String::from(unique_key_field),
+        tokenizer_file: String::from(tokenizer_file),
+        indexer_threads,
+        indexer_memory_size,
+        ..Default::default()
+    };
+    let index = Index::new(
+        index_name.to_string(),
+        shard_name.to_string(),
+        node_name.to_string(),
+        index_config,
+        discovery_container.clone(),
+        storage_container,
+    );
+
+    // register a node
+    let key = format!(
+        "/{}/{}/{}/{}.json",
+        CLUSTER_PATH, index_name, shard_name, node_name
+    );
+    match discovery_container.discovery.get(key.as_str()).await {
+        Ok(response) => match response {
+            Some(json) => match serde_json::from_str::<NodeDetails>(json.as_str()) {
+                Ok(node_details) => {
                     info!(
                         "node is already registered: index_name={:?}, shard_name={:?}, node_name={:?}, node_details={:?}",
-                        &index_name, shard_name, node_name, &node_details
+                        index_name, shard_name, node_name, &node_details
                     );
                 }
-                None => {
-                    // node does not exist
-                    let node_details = NodeDetails {
-                        address: format!("{}:{}", host, grpc_port),
-                        state: State::Disconnected as i32,
-                        role: Role::Candidate as i32,
-                    };
-                    match discovery
-                        .set_node(index_name, shard_name, node_name, node_details)
-                        .await
-                    {
-                        Ok(_) => (),
-                        Err(e) => return Err(e),
-                    };
+                Err(e) => {
+                    return Err(Box::try_from(IOError::new(
+                        ErrorKind::Other,
+                        format!("failed to get: error={:?}", e),
+                    ))
+                    .unwrap());
                 }
-            };
+            },
+            None => {
+                // node does not exist
+                let node_details = NodeDetails {
+                    address: format!("{}:{}", host, grpc_port),
+                    state: State::Disconnected as i32,
+                    role: Role::Candidate as i32,
+                };
+                let json = serde_json::to_string(&node_details).unwrap();
+
+                match discovery_container
+                    .discovery
+                    .put(key.as_str(), json.as_str())
+                    .await
+                {
+                    Ok(_) => (),
+                    Err(e) => {
+                        return Err(Box::try_from(IOError::new(
+                            ErrorKind::Other,
+                            format!("failed to watch: error={:?}", e),
+                        ))
+                        .unwrap())
+                    }
+                };
+            }
+        },
+        Err(e) => {
+            return Err(Box::try_from(IOError::new(
+                ErrorKind::Other,
+                format!("failed to watch: error={:?}", e),
+            ))
+            .unwrap())
         }
-        Err(e) => return Err(e),
     };
 
     // start gRPC server
     let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
-    let grpc_service = IndexService::new(
-        index_config,
-        index_name,
-        shard_name,
-        node_name,
-        discovery,
-        storage,
-    );
+    let grpc_service = IndexService::new(index);
     tokio::spawn(
         TonicServer::builder()
             .add_service(IndexServiceServer::new(grpc_service))
@@ -364,10 +412,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     match grpc_client.watch(watch_req).await {
         Ok(_) => (),
         Err(e) => {
-            return Err(Box::new(IOError::new(
+            return Err(Box::try_from(IOError::new(
                 ErrorKind::Other,
                 format!("failed to watch: error={:?}", e),
-            )))
+            ))
+            .unwrap())
         }
     };
 
@@ -379,10 +428,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     match grpc_client.unwatch(unwatch_req).await {
         Ok(_) => (),
         Err(e) => {
-            return Err(Box::new(IOError::new(
+            return Err(Box::try_from(IOError::new(
                 ErrorKind::Other,
                 format!("failed to unwatch: error={:?}", e),
-            )))
+            ))
+            .unwrap())
         }
     };
 

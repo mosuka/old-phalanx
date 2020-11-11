@@ -113,13 +113,13 @@ message DeleteReq {
 message DeleteReply {}
 
 message BulkSetReq {
-    repeated SetReq requests = 1;
+    repeated string docs = 1;
 }
 
 message BulkSetReply {}
 
 message BulkDeleteReq {
-    repeated DeleteReq requests = 1;
+    repeated string ids = 1;
 }
 
 message BulkDeleteReply {}
@@ -151,13 +151,7 @@ message SchemaReply {
 }
 
 message SearchReq {
-    string query = 1;
-    uint64 from = 2;
-    uint64 limit = 3;
-    bool exclude_count = 4;
-    bool exclude_docs = 5;
-    string facet_field = 6;
-    repeated string facet_prefixes = 7;
+    string request = 1;
 }
 
 message SearchReply {

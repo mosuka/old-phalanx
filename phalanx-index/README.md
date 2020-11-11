@@ -19,7 +19,7 @@ $ phalanx-index --host=0.0.0.0 \
                 --shard-name=shard0 \
                 --node-name=node0 \
                 --discovery-type=etcd \
-                --etcd-endpoints=127.0.0.1:2379 \
+                --etcd-endpoints=http://127.0.0.1:2379 \
                 --etcd-root=/phalanx \
                 --storage-type=minio \
                 --minio-access-key=minioadmin \
@@ -42,7 +42,7 @@ $ phalanx-index --host=0.0.0.0 \
                 --shard-name=shard0 \
                 --node-name=node1 \
                 --discovery-type=etcd \
-                --etcd-endpoints=127.0.0.1:2379 \
+                --etcd-endpoints=http://127.0.0.1:2379 \
                 --etcd-root=/phalanx \
                 --storage-type=minio \
                 --minio-access-key=minioadmin \
@@ -65,7 +65,7 @@ $ phalanx-index --host=0.0.0.0 \
                 --shard-name=shard1 \
                 --node-name=node2 \
                 --discovery-type=etcd \
-                --etcd-endpoints=127.0.0.1:2379 \
+                --etcd-endpoints=http://127.0.0.1:2379 \
                 --etcd-root=/phalanx \
                 --storage-type=minio \
                 --minio-access-key=minioadmin \
@@ -88,7 +88,7 @@ $ phalanx-index --host=0.0.0.0 \
                 --shard-name=shard1 \
                 --node-name=node3 \
                 --discovery-type=etcd \
-                --etcd-endpoints=127.0.0.1:2379 \
+                --etcd-endpoints=http://127.0.0.1:2379 \
                 --etcd-root=/phalanx \
                 --storage-type=minio \
                 --minio-access-key=minioadmin \
@@ -108,9 +108,9 @@ $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phala
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Rollback
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Merge
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Schema
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | {doc:. | @json}' ./examples/bulk_put.jsonl | jq -s -c '{ requests:.}')" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkSet
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c -s '{ requests:.}' ./examples/bulk_delete.jsonl)" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkDelete
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "query": "rust", "from": 0, "limit": 10, "exclude_count": false, "exclude_docs": false, "facet_field": "category", "facet_prefixes": ["/category/search", "/language"] }' -plaintext 0.0.0.0:5000 phalanx.IndexService/Search
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | @json' ./examples/bulk_put.jsonl | jq -s -c '{ docs:. }')" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkSet
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq '. | @json' ./examples/bulk_delete.txt  | jq -s -c '{ ids:. }')" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkDelete
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq '. | @json' ./examples/search_request.json  | jq -s -c '{ request:. }')" -plaintext 0.0.0.0:5000 phalanx.IndexService/Search | jq -r '.result' | jq .
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Push
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5001 phalanx.IndexService/Pull
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5002 phalanx.IndexService/Pull
