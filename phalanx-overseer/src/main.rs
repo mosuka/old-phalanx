@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate clap;
-
 use std::convert::{Infallible, TryFrom};
 use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
@@ -8,7 +5,7 @@ use std::net::SocketAddr;
 use std::thread::sleep;
 use std::time::Duration;
 
-use clap::{App, AppSettings, Arg};
+use clap::{crate_authors, crate_name, crate_version, App, AppSettings, Arg};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server as HyperServer;
 use log::*;
@@ -17,8 +14,10 @@ use tonic::transport::Server as TonicServer;
 use tonic::Request;
 
 use phalanx_common::log::set_logger;
-use phalanx_discovery::discovery::etcd::{Etcd as EtcdDiscovery, TYPE as ETCD_TYPE};
-use phalanx_discovery::discovery::Discovery;
+use phalanx_discovery::discovery::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_TYPE};
+use phalanx_discovery::discovery::nop::Nop as NopDiscovery;
+use phalanx_discovery::discovery::DiscoveryContainer;
+use phalanx_overseer::overseer::Overseer;
 use phalanx_overseer::server::grpc::OverseerService;
 use phalanx_overseer::server::http::handle;
 use phalanx_proto::phalanx::overseer_service_client::OverseerServiceClient;
@@ -90,11 +89,11 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("WATCH_INTERVAL")
-                .help("Watch interval (in milliseconds)")
-                .long("watch-interval")
-                .value_name("WATCH_INTERVAL")
-                .default_value("500")
+            Arg::with_name("PROBE_INTERVAL")
+                .help("Probe interval (in milliseconds)")
+                .long("probe-interval")
+                .value_name("PROBE_INTERVAL")
+                .default_value("100")
                 .takes_value(true),
         );
 
@@ -120,27 +119,34 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .collect();
     let etcd_root = matches.value_of("ETCD_ROOT").unwrap();
 
-    let watch_interval = matches
-        .value_of("WATCH_INTERVAL")
+    let probe_interval = matches
+        .value_of("PROBE_INTERVAL")
         .unwrap()
         .parse::<u64>()
         .unwrap();
 
     // create discovery
-    let discovery: Box<dyn Discovery> = match discovery_type {
-        ETCD_TYPE => Box::new(EtcdDiscovery::new(etcd_endpoints, etcd_root)),
-        _ => {
-            return Err(Box::try_from(IOError::new(
-                ErrorKind::Other,
-                format!("unsupported discovery type: {}", discovery_type),
-            ))
-            .unwrap());
-        }
+    let discovery_container: DiscoveryContainer = match discovery_type {
+        ETCD_TYPE => DiscoveryContainer {
+            discovery: Box::new(EtcdDiscovery::new(EtcdConfig {
+                endpoints: etcd_endpoints.iter().map(|s| s.to_string()).collect(),
+                root: Some(etcd_root.to_string()),
+                auth: None,
+                tls_ca_path: None,
+                tls_cert_path: None,
+                tls_key_path: None,
+            })),
+        },
+        _ => DiscoveryContainer {
+            discovery: Box::new(NopDiscovery::new()),
+        },
     };
+
+    let overseer = Overseer::new(discovery_container);
 
     // start gRPC server
     let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
-    let grpc_service = OverseerService::new(discovery);
+    let grpc_service = OverseerService::new(overseer);
     tokio::spawn(
         TonicServer::builder()
             .add_service(OverseerServiceServer::new(grpc_service))
@@ -153,7 +159,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut grpc_client = OverseerServiceClient::connect(grpc_server_url.clone())
         .await
         .unwrap();
-    info!("create gRPC client for {}", &grpc_server_url);
 
     // start HTTP server
     let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
@@ -166,7 +171,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     // watch
     let watch_req = Request::new(WatchReq {
-        interval: watch_interval,
+        interval: probe_interval,
     });
     match grpc_client.watch(watch_req).await {
         Ok(_) => (),

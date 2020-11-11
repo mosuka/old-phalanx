@@ -5,6 +5,7 @@ use crate::storage::Storage;
 
 pub const TYPE: &str = "null";
 
+#[derive(Clone)]
 pub struct Nop {}
 
 impl Nop {
@@ -19,35 +20,39 @@ impl Storage for Nop {
         TYPE
     }
 
-    async fn exist(
-        &self,
-        _index_name: &str,
-        _shard_name: &str,
-    ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    async fn exist(&self, _key: &str) -> Result<bool, Box<dyn Error + Send + Sync>> {
         Ok(false)
     }
 
-    async fn pull_index(
-        &self,
-        _index_name: &str,
-        _shard_name: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn get(&self, _key: &str) -> Result<Option<Vec<u8>>, Box<dyn Error + Send + Sync>> {
+        Ok(None)
+    }
+
+    async fn list(&self, _prefix: &str) -> Result<Vec<String>, Box<dyn Error + Send + Sync>> {
+        Ok(Vec::new())
+    }
+
+    async fn set(&self, _key: &str, _content: &[u8]) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
-    async fn push_index(
-        &self,
-        _index_name: &str,
-        _shard_name: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn delete(&self, _key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
-    // async fn sync_index(&mut self, _interval: u64) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // async fn pull(
+    //     &self,
+    //     _index_name: &str,
+    //     _shard_name: &str,
+    // ) -> Result<(), Box<dyn Error + Send + Sync>> {
     //     Ok(())
     // }
 
-    // async fn unsync_index(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // async fn push(
+    //     &self,
+    //     _index_name: &str,
+    //     _shard_name: &str,
+    // ) -> Result<(), Box<dyn Error + Send + Sync>> {
     //     Ok(())
     // }
 }

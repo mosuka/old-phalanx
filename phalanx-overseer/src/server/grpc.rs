@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
-use log::*;
-use prometheus::{CounterVec, HistogramVec};
+use lazy_static::lazy_static;
+use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use tokio::sync::Mutex;
 use tonic::{Code, Request, Response, Status};
 
-use phalanx_discovery::discovery::Discovery;
 use phalanx_proto::phalanx::overseer_service_server::OverseerService as ProtoOverseerService;
 use phalanx_proto::phalanx::{
     InquireReply, InquireReq, ReadinessReply, ReadinessReq, RegisterReply, RegisterReq, State,
     UnregisterReply, UnregisterReq, UnwatchReply, UnwatchReq, WatchReply, WatchReq,
 };
+
+use crate::overseer::Overseer;
 
 lazy_static! {
     static ref REQUEST_COUNTER: CounterVec = register_counter_vec!(
@@ -28,13 +29,13 @@ lazy_static! {
 }
 
 pub struct OverseerService {
-    discovery: Arc<Mutex<Box<dyn Discovery>>>,
+    overseer: Arc<Mutex<Overseer>>,
 }
 
 impl OverseerService {
-    pub fn new(discovery: Box<dyn Discovery>) -> OverseerService {
+    pub fn new(overseer: Overseer) -> OverseerService {
         OverseerService {
-            discovery: Arc::new(Mutex::new(discovery)),
+            overseer: Arc::new(Mutex::new(overseer)),
         }
     }
 }
@@ -69,27 +70,42 @@ impl ProtoOverseerService for OverseerService {
 
         let interval = req.interval;
 
-        let discovery = Arc::clone(&self.discovery);
-        let mut discovery = discovery.lock().await;
+        let overseer = Arc::clone(&self.overseer);
+        let mut overseer = overseer.lock().await;
 
-        match discovery.watch_cluster().await {
+        match overseer.watch().await {
             Ok(_) => (),
             Err(e) => {
-                error!("failed to start watch thread: error = {:?}", e);
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to watch: error = {:?}", e),
+                ));
             }
         };
 
-        match discovery.watch_role().await {
+        match overseer.receive().await {
             Ok(_) => (),
             Err(e) => {
-                error!("failed to start role check thread: error = {:?}", e);
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to receive: error = {:?}", e),
+                ));
             }
         };
 
-        match discovery.start_health_check(interval).await {
+        match overseer.probe(interval).await {
             Ok(_) => (),
             Err(e) => {
-                error!("failed to start state check thread: error = {:?}", e);
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to probe: error = {:?}", e),
+                ));
             }
         };
 
@@ -109,29 +125,44 @@ impl ProtoOverseerService for OverseerService {
             .with_label_values(&["unwatch"])
             .start_timer();
 
-        let discovery = Arc::clone(&self.discovery);
-        let mut discovery = discovery.lock().await;
+        let overseer = Arc::clone(&self.overseer);
+        let mut overseer = overseer.lock().await;
 
-        match discovery.unwatch_cluster().await {
+        match overseer.unwatch().await {
             Ok(_) => (),
             Err(e) => {
-                error!("failed to stop watch thread: error = {:?}", e);
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to unwatch: error = {:?}", e),
+                ));
             }
         };
 
-        match discovery.unwatch_role().await {
+        match overseer.unreceive().await {
             Ok(_) => (),
             Err(e) => {
-                error!("failed to stop role check thread: error = {:?}", e);
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to unreceive: error = {:?}", e),
+                ));
             }
         };
 
-        match discovery.stop_health_check().await {
+        match overseer.unprobe().await {
             Ok(_) => (),
             Err(e) => {
-                error!("failed to stop health check thread: error = {:?}", e);
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to unprobe: error = {:?}", e),
+                ));
             }
-        };
+        }
 
         let reply = UnwatchReply {};
 
@@ -157,29 +188,29 @@ impl ProtoOverseerService for OverseerService {
 
         let node_details = req.node_details.unwrap();
 
-        let discovery = Arc::clone(&self.discovery);
-        let mut discovery = discovery.lock().await;
+        let overseer = Arc::clone(&self.overseer);
+        let mut overseer = overseer.lock().await;
 
-        match discovery
-            .set_node(index_name, shard_name, node_name, node_details)
+        match overseer
+            .register(index_name, shard_name, node_name, node_details)
             .await
         {
-            Ok(_) => (),
+            Ok(_) => {
+                let reply = RegisterReply {};
+
+                timer.observe_duration();
+
+                Ok(Response::new(reply))
+            }
             Err(e) => {
                 timer.observe_duration();
 
-                return Err(Status::new(
+                Err(Status::new(
                     Code::Internal,
-                    format!("failed to remove unnecessary files: error = {:?}", e),
-                ));
+                    format!("failed to register node: error = {:?}", e),
+                ))
             }
-        };
-
-        let reply = RegisterReply {};
-
-        timer.observe_duration();
-
-        Ok(Response::new(reply))
+        }
     }
 
     async fn unregister(
@@ -197,29 +228,26 @@ impl ProtoOverseerService for OverseerService {
         let shard_name = &req.shard_name;
         let node_name = &req.node_name;
 
-        let discovery = Arc::clone(&self.discovery);
-        let mut discovery = discovery.lock().await;
+        let overseer = Arc::clone(&self.overseer);
+        let mut overseer = overseer.lock().await;
 
-        match discovery
-            .delete_node(index_name, shard_name, node_name)
-            .await
-        {
-            Ok(_) => (),
+        match overseer.unregister(index_name, shard_name, node_name).await {
+            Ok(_) => {
+                let reply = UnregisterReply {};
+
+                timer.observe_duration();
+
+                Ok(Response::new(reply))
+            }
             Err(e) => {
                 timer.observe_duration();
 
-                return Err(Status::new(
+                Err(Status::new(
                     Code::Internal,
-                    format!("failed to remove unnecessary files: error = {:?}", e),
-                ));
+                    format!("failed to unregister node: error = {:?}", e),
+                ))
             }
-        };
-
-        let reply = UnregisterReply {};
-
-        timer.observe_duration();
-
-        Ok(Response::new(reply))
+        }
     }
 
     async fn inquire(
@@ -237,10 +265,10 @@ impl ProtoOverseerService for OverseerService {
         let shard_name = &req.shard_name;
         let node_name = &req.node_name;
 
-        let discovery = Arc::clone(&self.discovery);
-        let mut discovery = discovery.lock().await;
+        let overseer = Arc::clone(&self.overseer);
+        let mut overseer = overseer.lock().await;
 
-        match discovery.get_node(index_name, shard_name, node_name).await {
+        match overseer.inquire(index_name, shard_name, node_name).await {
             Ok(node_details) => {
                 let reply = InquireReply { node_details };
 
@@ -253,7 +281,7 @@ impl ProtoOverseerService for OverseerService {
 
                 Err(Status::new(
                     Code::Internal,
-                    format!("failed to inquire node details: error = {:?}", e),
+                    format!("failed to inquire node: error = {:?}", e),
                 ))
             }
         }

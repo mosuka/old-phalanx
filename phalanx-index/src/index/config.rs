@@ -9,21 +9,21 @@ pub const DEFAULT_UNIQUE_KEY_FIELD: &str = "id";
 pub struct IndexConfig {
     pub index_dir: String,
     pub schema_file: String,
+    pub unique_key_field: String,
     pub tokenizer_file: String,
     pub indexer_threads: usize,
     pub indexer_memory_size: usize,
-    pub unique_key_field: String,
 }
 
-impl IndexConfig {
-    pub fn new() -> IndexConfig {
+impl Default for IndexConfig {
+    fn default() -> IndexConfig {
         IndexConfig {
             index_dir: String::from(DEFAULT_INDEX_DIRECTORY),
             schema_file: String::from(DEFAULT_SCHEMA_FILE),
+            unique_key_field: String::from(DEFAULT_UNIQUE_KEY_FIELD),
             tokenizer_file: String::from(DEFAULT_TOKENIZER_FILE),
             indexer_threads: DEFAULT_INDEXER_THREADS,
             indexer_memory_size: DEFAULT_INDEXER_MEMORY_SIZE,
-            unique_key_field: String::from(DEFAULT_UNIQUE_KEY_FIELD),
         }
     }
 }

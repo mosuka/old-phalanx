@@ -10,9 +10,9 @@ $ phalanx-overseer --host=0.0.0.0 \
                    --grpc-port=5100 \
                    --http-port=8100 \
                    --discovery-type=etcd \
-                   --etcd-endpoints=127.0.0.1:2379 \
+                   --etcd-endpoints=http://127.0.0.1:2379 \
                    --etcd-root=/phalanx \
-                   --watch-interval=500
+                   --probe-interval=100
 ```
 
 Invoking RPCs example:
