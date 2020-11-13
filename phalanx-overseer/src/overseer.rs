@@ -17,7 +17,7 @@ use tokio::time::Duration;
 
 use phalanx_discovery::discovery::etcd::{Etcd, EtcdConfig, TYPE as ETCD_TYPE};
 use phalanx_discovery::discovery::nop::Nop;
-use phalanx_discovery::discovery::{DiscoveryContainer, Event, EventType, CLUSTER_PATH};
+use phalanx_discovery::discovery::{DiscoveryContainer, Event, EventType};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::{NodeDetails, ReadinessReq, Role, State};
 
@@ -57,10 +57,7 @@ impl Overseer {
         node_name: &str,
         node_details: NodeDetails,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let key = format!(
-            "/{}/{}/{}/{}.json",
-            CLUSTER_PATH, index_name, shard_name, node_name
-        );
+        let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
         let value = serde_json::to_string(&node_details).unwrap();
 
         match self.discovery_container.discovery.put(&key, &value).await {
@@ -79,10 +76,7 @@ impl Overseer {
         shard_name: &str,
         node_name: &str,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let key = format!(
-            "/{}/{}/{}/{}.json",
-            CLUSTER_PATH, index_name, shard_name, node_name
-        );
+        let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
 
         match self.discovery_container.discovery.delete(&key).await {
             Ok(_) => Ok(()),
@@ -100,10 +94,7 @@ impl Overseer {
         shard_name: &str,
         node_name: &str,
     ) -> Result<Option<NodeDetails>, Box<dyn Error + Send + Sync>> {
-        let key = format!(
-            "/{}/{}/{}/{}.json",
-            CLUSTER_PATH, index_name, shard_name, node_name
-        );
+        let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
 
         match self.discovery_container.discovery.get(&key).await {
             Ok(response) => match response {
@@ -141,17 +132,12 @@ impl Overseer {
         // prepare sender
         let sender = self.sender.as_ref().unwrap().clone();
 
-        let key = format!("/{}/", CLUSTER_PATH);
+        let key = "/";
 
-        match self
-            .discovery_container
-            .discovery
-            .watch(sender, key.as_str())
-            .await
-        {
+        match self.discovery_container.discovery.watch(sender, key).await {
             Ok(_) => Ok(()),
             Err(err) => {
-                let msg = format!("failed to watch: key={}, error={:?}", &key, err);
+                let msg = format!("failed to watch: key={}, error={:?}", key, err);
                 error!("{}", msg);
                 Err(err)
             }
@@ -180,8 +166,8 @@ impl Overseer {
         let nodes = Arc::clone(&self.nodes);
 
         debug!("initialize nodes cache");
-        let key = format!("/{}/", CLUSTER_PATH);
-        match self.discovery_container.discovery.list(key.as_str()).await {
+        let key = "/";
+        match self.discovery_container.discovery.list(key).await {
             Ok(kvps) => {
                 for kvp in kvps {
                     match kvp.value {
@@ -241,8 +227,8 @@ impl Overseer {
             info!("start receive thread");
             receiving.store(true, Ordering::Relaxed);
 
-            let re_str = format!("^(/{}/([^/]+)/([^/]+)/([^/]+)\\.json)", CLUSTER_PATH);
-            let re = Regex::new(&re_str).unwrap();
+            let re_str = "^(/([^/]+)/([^/]+)/([^/]+)\\.json)";
+            let re = Regex::new(re_str).unwrap();
 
             loop {
                 let mut discovery_container = discovery_container.clone();
@@ -285,8 +271,7 @@ impl Overseer {
                                     }
                                 };
 
-                                let sel_key =
-                                    format!("/{}/{}/{}/", CLUSTER_PATH, index_name, shard_name);
+                                let sel_key = format!("/{}/{}/", index_name, shard_name);
 
                                 // make a ready candidate node an replica node
                                 match discovery_container.discovery.list(sel_key.as_str()).await {
@@ -334,8 +319,7 @@ impl Overseer {
                                                                             }
                                                                         };
                                                                         let key = format!(
-                                                                            "/{}/{}/{}/{}.json",
-                                                                            CLUSTER_PATH,
+                                                                            "/{}/{}/{}.json",
                                                                             index_name,
                                                                             shard_name,
                                                                             node_name
@@ -471,8 +455,7 @@ impl Overseer {
                                                                                     }
                                                                                 };
                                                                             let key = format!(
-                                                                                "/{}/{}/{}/{}.json",
-                                                                                CLUSTER_PATH,
+                                                                                "/{}/{}/{}.json",
                                                                                 index_name,
                                                                                 shard_name,
                                                                                 node_name
