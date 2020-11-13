@@ -18,7 +18,7 @@ use phalanx_discovery::discovery::etcd::{
     Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE,
 };
 use phalanx_discovery::discovery::nop::Nop as NopDiscovery;
-use phalanx_discovery::discovery::{DiscoveryContainer, CLUSTER_PATH};
+use phalanx_discovery::discovery::DiscoveryContainer;
 use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
@@ -325,10 +325,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
 
     // register a node
-    let key = format!(
-        "/{}/{}/{}/{}.json",
-        CLUSTER_PATH, index_name, shard_name, node_name
-    );
+    let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
     match discovery_container.discovery.get(key.as_str()).await {
         Ok(response) => match response {
             Some(json) => match serde_json::from_str::<NodeDetails>(json.as_str()) {

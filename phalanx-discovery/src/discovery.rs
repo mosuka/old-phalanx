@@ -10,8 +10,8 @@ use dyn_clone::{clone_trait_object, DynClone};
 use lazy_static::lazy_static;
 use prometheus::{register_gauge_vec, GaugeVec};
 
-pub const CLUSTER_PATH: &str = "cluster";
-pub const INDEX_META_PATH: &str = "index_meta";
+// pub const CLUSTER_PATH: &str = "cluster";
+// pub const INDEX_META_PATH: &str = "index_meta";
 
 lazy_static! {
     static ref NODE_STATE_GAUGE: GaugeVec = register_gauge_vec!(

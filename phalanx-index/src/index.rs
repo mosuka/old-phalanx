@@ -379,7 +379,6 @@ impl Index {
         }
 
         // TODO: If the node is a leader, it pushes the index to object storage.
-
     }
 
     pub fn schema(&self) -> Schema {
