@@ -2,32 +2,26 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::io::{Error as IOError, ErrorKind};
-use std::path::Path;
 
 use lazy_static::lazy_static;
 use log::*;
-use phalanx_storage::storage::StorageContainer;
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
-use serde_json::Value;
 use tantivy::collector::{Count, FacetCollector, MultiCollector, TopDocs};
 use tantivy::directory::MmapDirectory;
 use tantivy::merge_policy::LogMergePolicy;
 use tantivy::query::{QueryParser, TermQuery};
 use tantivy::schema::{Field, FieldType, IndexRecordOption, Schema};
 use tantivy::{Index, IndexWriter, Term};
-use tokio::fs::File;
-use tokio::io::{copy, AsyncReadExt};
 use tokio::sync::Mutex;
 use tonic::codegen::Arc;
 use tonic::{Code, Request, Response, Status};
-use walkdir::WalkDir;
 
 use phalanx_proto::phalanx::index_service_server::IndexService as ProtoIndexService;
 use phalanx_proto::phalanx::{
     BulkDeleteReply, BulkDeleteReq, BulkSetReply, BulkSetReq, CommitReply, CommitReq, DeleteReply,
-    DeleteReq, GetReply, GetReq, MergeReply, MergeReq, PullReply, PullReq, PushReply, PushReq,
-    ReadinessReply, ReadinessReq, RollbackReply, RollbackReq, SchemaReply, SchemaReq, SearchReply,
-    SearchReq, SetReply, SetReq, State, UnwatchReply, UnwatchReq, WatchReply, WatchReq,
+    DeleteReq, GetReply, GetReq, MergeReply, MergeReq, ReadinessReply, ReadinessReq, RollbackReply,
+    RollbackReq, SchemaReply, SchemaReq, SearchReply, SearchReq, SetReply, SetReq, State,
+    UnwatchReply, UnwatchReq, WatchReply, WatchReq,
 };
 
 use crate::index::config::IndexConfig;
@@ -52,11 +46,6 @@ lazy_static! {
 }
 
 pub struct IndexService {
-    index_name: String,
-    shard_name: String,
-    // node_name: String,
-    index_config: IndexConfig,
-    storage_container: StorageContainer,
     index: Index,
     index_writer: Arc<Mutex<IndexWriter>>,
     unique_key_field: Field,
@@ -65,11 +54,7 @@ pub struct IndexService {
 
 impl IndexService {
     pub fn new(
-        index_name: &str,
-        shard_name: &str,
-        // node_name: &str,
         index_config: IndexConfig,
-        storage_container: StorageContainer,
         watcher: Watcher,
     ) -> IndexService {
         // create index directory
@@ -155,11 +140,6 @@ impl IndexService {
         };
 
         IndexService {
-            index_name: String::from(index_name),
-            shard_name: String::from(shard_name),
-            // node_name: String::from(node_name),
-            index_config,
-            storage_container,
             index,
             index_writer: Arc::new(Mutex::new(index_writer)),
             unique_key_field,
@@ -402,223 +382,6 @@ impl IndexService {
 
     pub fn schema(&self) -> Schema {
         self.index.schema()
-    }
-
-    pub async fn push(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // list file names
-        let mut file_names = Vec::new();
-        for entry in WalkDir::new(&self.index_config.index_dir)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-        {
-            let file_name = entry.file_name().to_str().unwrap();
-            // exclude lock files
-            if !file_name.ends_with(".lock") {
-                file_names.push(String::from(file_name));
-            }
-        }
-
-        // push files to object storage
-        for file_name in &file_names {
-            // read file
-            let file_path = String::from(
-                Path::new(&self.index_config.index_dir)
-                    .join(&file_name)
-                    .to_str()
-                    .unwrap(),
-            );
-
-            let mut file = match File::open(&file_path).await {
-                Ok(file) => file,
-                Err(e) => return Err(Box::new(e)),
-            };
-            let mut content: Vec<u8> = Vec::new();
-            match file.read_to_end(&mut content).await {
-                Ok(_) => (),
-                Err(e) => return Err(Box::new(e)),
-            };
-
-            // put object
-            let object_key = format!("{}/{}/{}", self.index_name, self.shard_name, &file_name);
-            info!("set {} to {}", &file_path, &object_key);
-            match self
-                .storage_container
-                .storage
-                .set(object_key.as_str(), content.as_slice())
-                .await
-            {
-                Ok(_) => (),
-                Err(e) => {
-                    error!("failed to set object: error={:?}", e);
-                    return Err(e);
-                }
-            };
-        }
-
-        // list object names
-        let prefix = format!("{}/{}/", self.index_name, self.shard_name);
-        let object_names = match self.storage_container.storage.list(&prefix).await {
-            Ok(object_keys) => {
-                let mut object_names = Vec::new();
-                for object_key in object_keys {
-                    // cluster1/shard1/meta.json -> meta.json
-                    let object_name = Path::new(&object_key).strip_prefix(&prefix).unwrap();
-                    object_names.push(String::from(object_name.to_str().unwrap()));
-                }
-                object_names
-            }
-            Err(e) => return Err(e),
-        };
-
-        // remove unnecessary objects
-        for object_name in object_names {
-            if !file_names.contains(&object_name) {
-                // e.g. meta.json -> cluster1/shard1/meta.json
-                let object_key =
-                    format!("{}/{}/{}", self.index_name, self.shard_name, &object_name);
-                match self
-                    .storage_container
-                    .storage
-                    .delete(object_key.as_str())
-                    .await
-                {
-                    Ok(_output) => (),
-                    Err(e) => return Err(e),
-                };
-            }
-        }
-
-        Ok(())
-    }
-
-    pub async fn pull(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // list objects
-        let managed_json_key = format!("{}/{}/.managed.json", self.index_name, self.shard_name);
-        let mut object_names = match self
-            .storage_container
-            .storage
-            .get(managed_json_key.as_str())
-            .await
-        {
-            Ok(resp) => {
-                match resp {
-                    Some(content) => {
-                        // parse content
-                        let value: Value =
-                            match serde_json::from_slice::<Value>(&content.as_slice()) {
-                                Ok(value) => value,
-                                Err(e) => {
-                                    return Err(Box::new(IOError::new(
-                                        ErrorKind::Other,
-                                        format!("failed to parse .managed.json : error={:?}", e),
-                                    )));
-                                }
-                            };
-
-                        // create object name list
-                        let mut object_names = Vec::new();
-                        for object_name in value.as_array().unwrap() {
-                            object_names.push(String::from(object_name.as_str().unwrap()));
-                        }
-                        object_names
-                    }
-                    None => {
-                        return Err(Box::new(IOError::new(
-                            ErrorKind::Other,
-                            format!("content is None"),
-                        )))
-                    }
-                }
-            }
-            Err(e) => return Err(e),
-        };
-        object_names.push(".managed.json".to_string());
-
-        // pull objects
-        for object_name in object_names.clone() {
-            // get object
-            let object_key = format!("{}/{}/{}", self.index_name, self.shard_name, &object_name);
-            match self
-                .storage_container
-                .storage
-                .get(object_key.as_str())
-                .await
-            {
-                Ok(resp) => {
-                    match resp {
-                        Some(content) => {
-                            let file_path = String::from(
-                                Path::new(&self.index_config.index_dir)
-                                    .join(&object_name)
-                                    .to_str()
-                                    .unwrap(),
-                            );
-                            info!("pull {} to {}", &object_key, &file_path);
-                            let mut file = match File::create(&file_path).await {
-                                Ok(file) => file,
-                                Err(e) => {
-                                    return Err(Box::new(IOError::new(
-                                        ErrorKind::Other,
-                                        format!(
-                                            "failed to create file {}: error={:?}",
-                                            &file_path, e
-                                        ),
-                                    )));
-                                }
-                            };
-                            copy(&mut content.as_slice(), &mut file).await.unwrap();
-                        }
-                        None => {
-                            return Err(Box::new(IOError::new(
-                                ErrorKind::Other,
-                                format!("content is None"),
-                            )));
-                        }
-                    };
-                }
-                Err(e) => return Err(e),
-            };
-        }
-
-        // list files
-        let mut file_names = Vec::new();
-        for entry in WalkDir::new(&self.index_config.index_dir)
-            .follow_links(true)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().is_file())
-        {
-            let file_name = entry.file_name().to_str().unwrap();
-            // exclude lock files
-            if !file_name.ends_with(".lock") {
-                file_names.push(String::from(file_name));
-            }
-        }
-
-        // remove unnecessary files
-        for file_name in file_names {
-            if !object_names.contains(&file_name) {
-                let file_path = String::from(
-                    Path::new(&self.index_config.index_dir)
-                        .join(&file_name)
-                        .to_str()
-                        .unwrap(),
-                );
-                match fs::remove_file(&file_path) {
-                    Ok(()) => debug!("delete: {}", &file_path),
-                    Err(e) => {
-                        return Err(Box::new(IOError::new(
-                            ErrorKind::Other,
-                            format!("failed to delete file: error={:?}", e),
-                        )));
-                    }
-                };
-            }
-        }
-
-        Ok(())
     }
 
     pub async fn search(
@@ -999,56 +762,6 @@ impl ProtoIndexService for IndexService {
                 ))
             }
         }
-
-        // // push index
-        // let discovery_container = Arc::clone(&self.discovery_container);
-        // let mut discovery_container = discovery_container.lock().await;
-        // let key = format!(
-        //     "/{}/{}/{}/{}.json",
-        //     CLUSTER_PATH, &self.index_name, &self.shard_name, &self.node_name
-        // );
-        // match discovery_container.discovery.get(key.as_str()).await {
-        //     Ok(result) => match result {
-        //         Some(s) => match serde_json::from_str::<NodeDetails>(s.as_str()) {
-        //             Ok(node_details) => {
-        //                 if node_details.role == Role::Primary as i32 {
-        //                     let storage = Arc::clone(&self.storage);
-        //                     let storage = storage.lock().await;
-        //                     match storage.push(&self.index_name, &self.shard_name).await {
-        //                         Ok(_) => (),
-        //                         Err(e) => {
-        //                             timer.observe_duration();
-        //
-        //                             return Err(Status::new(
-        //                                 Code::Internal,
-        //                                 format!("failed to push index: error = {:?}", e),
-        //                             ));
-        //                         }
-        //                     }
-        //                 } else {
-        //                     debug!("I'm replica node");
-        //                 };
-        //             }
-        //             Err(e) => {
-        //                 timer.observe_duration();
-        //
-        //                 return Err(Status::new(
-        //                     Code::Internal,
-        //                     format!("failed to parse content: error = {:?}", e),
-        //                 ));
-        //             }
-        //         },
-        //         None => debug!("the node does not exist"),
-        //     },
-        //     Err(e) => {
-        //         timer.observe_duration();
-        //
-        //         return Err(Status::new(
-        //             Code::Internal,
-        //             format!("failed to get node: error = {:?}", e),
-        //         ));
-        //     }
-        // };
     }
 
     async fn rollback(
@@ -1099,102 +812,6 @@ impl ProtoIndexService for IndexService {
                 Err(Status::new(
                     Code::Internal,
                     format!("failed to merge index: error = {:?}", e),
-                ))
-            }
-        }
-
-        // // push index
-        // let discovery_container = Arc::clone(&self.discovery_container);
-        // let mut discovery_container = discovery_container.lock().await;
-        // let key = format!(
-        //     "/{}/{}/{}/{}.json",
-        //     CLUSTER_PATH, &self.index_name, &self.shard_name, &self.node_name
-        // );
-        // match discovery_container.discovery.get(key.as_str()).await {
-        //     Ok(result) => match result {
-        //         Some(s) => match serde_json::from_str::<NodeDetails>(s.as_str()) {
-        //             Ok(node_details) => {
-        //                 if node_details.role == Role::Primary as i32 {
-        //                     let storage = Arc::clone(&self.storage);
-        //                     let storage = storage.lock().await;
-        //                     match storage.push(&self.index_name, &self.shard_name).await {
-        //                         Ok(_) => (),
-        //                         Err(e) => {
-        //                             timer.observe_duration();
-        //
-        //                             return Err(Status::new(
-        //                                 Code::Internal,
-        //                                 format!("failed to push index: error = {:?}", e),
-        //                             ));
-        //                         }
-        //                     }
-        //                 } else {
-        //                     debug!("I'm replica node");
-        //                 };
-        //             }
-        //             Err(e) => {
-        //                 timer.observe_duration();
-        //
-        //                 return Err(Status::new(
-        //                     Code::Internal,
-        //                     format!("failed to parse content: error = {:?}", e),
-        //                 ));
-        //             }
-        //         },
-        //         None => debug!("the node does not exist"),
-        //     },
-        //     Err(e) => {
-        //         timer.observe_duration();
-        //
-        //         return Err(Status::new(
-        //             Code::Internal,
-        //             format!("failed to get node: error = {:?}", e),
-        //         ));
-        //     }
-        // };
-    }
-
-    async fn push(&self, _request: Request<PushReq>) -> Result<Response<PushReply>, Status> {
-        REQUEST_COUNTER.with_label_values(&["push"]).inc();
-        let timer = REQUEST_HISTOGRAM.with_label_values(&["push"]).start_timer();
-
-        match self.push().await {
-            Ok(_) => {
-                let reply = PushReply {};
-
-                timer.observe_duration();
-
-                Ok(Response::new(reply))
-            }
-            Err(e) => {
-                timer.observe_duration();
-
-                Err(Status::new(
-                    Code::Internal,
-                    format!("failed to push index: error = {:?}", e),
-                ))
-            }
-        }
-    }
-
-    async fn pull(&self, _request: Request<PullReq>) -> Result<Response<PullReply>, Status> {
-        REQUEST_COUNTER.with_label_values(&["pull"]).inc();
-        let timer = REQUEST_HISTOGRAM.with_label_values(&["pull"]).start_timer();
-
-        match self.pull().await {
-            Ok(_) => {
-                let reply = PullReply {};
-
-                timer.observe_duration();
-
-                Ok(Response::new(reply))
-            }
-            Err(e) => {
-                timer.observe_duration();
-
-                Err(Status::new(
-                    Code::Internal,
-                    format!("failed to pull index: error = {:?}", e),
                 ))
             }
         }

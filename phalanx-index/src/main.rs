@@ -347,11 +347,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     // index service
     let index_service = IndexService::new(
-        index_name,
-        shard_name,
-        // node_name,
         index_config,
-        storage_container,
         watcher,
     );
 

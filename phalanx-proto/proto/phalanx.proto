@@ -86,8 +86,6 @@ service IndexService {
     rpc Commit (CommitReq) returns (CommitReply) {}
     rpc Rollback (RollbackReq) returns (RollbackReply) {}
     rpc Merge (MergeReq) returns (MergeReply) {}
-    rpc Push (PushReq) returns (PushReply) {}
-    rpc Pull (PullReq) returns (PullReply) {}
     rpc Schema (SchemaReq) returns (SchemaReply) {}
     rpc Search (SearchReq) returns (SearchReply) {}
 }
@@ -135,14 +133,6 @@ message RollbackReply {}
 message MergeReq {}
 
 message MergeReply {}
-
-message PushReq {}
-
-message PushReply {}
-
-message PullReq {}
-
-message PullReply {}
 
 message SchemaReq {}
 

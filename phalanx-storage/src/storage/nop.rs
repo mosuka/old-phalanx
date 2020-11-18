@@ -39,20 +39,4 @@ impl Storage for Nop {
     async fn delete(&self, _key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
-
-    // async fn pull(
-    //     &self,
-    //     _index_name: &str,
-    //     _shard_name: &str,
-    // ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    //     Ok(())
-    // }
-
-    // async fn push(
-    //     &self,
-    //     _index_name: &str,
-    //     _shard_name: &str,
-    // ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    //     Ok(())
-    // }
 }
