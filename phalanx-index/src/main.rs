@@ -1,7 +1,7 @@
-use std::convert::{Infallible, TryFrom};
+use std::convert::Infallible;
 use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
-use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -23,7 +23,7 @@ use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
 };
-use phalanx_index::index::Index;
+use phalanx_index::index::watcher::Watcher;
 use phalanx_index::server::grpc::IndexService;
 use phalanx_index::server::http::handle;
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
@@ -315,105 +315,90 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         indexer_memory_size,
         ..Default::default()
     };
-    let index = Index::new(
-        index_name.to_string(),
-        shard_name.to_string(),
-        node_name.to_string(),
-        index_config,
-        discovery_container.clone(),
-        storage_container,
-    );
 
     // register a node
     let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
-    match discovery_container.discovery.get(key.as_str()).await {
-        Ok(response) => match response {
-            Some(json) => match serde_json::from_str::<NodeDetails>(json.as_str()) {
-                Ok(node_details) => {
-                    info!(
-                        "node is already registered: index_name={:?}, shard_name={:?}, node_name={:?}, node_details={:?}",
-                        index_name, shard_name, node_name, &node_details
-                    );
-                }
-                Err(e) => {
-                    return Err(Box::try_from(IOError::new(
-                        ErrorKind::Other,
-                        format!("failed to get: error={:?}", e),
-                    ))
-                    .unwrap());
-                }
-            },
-            None => {
-                // node does not exist
-                let node_details = NodeDetails {
-                    address: format!("{}:{}", host, grpc_port),
-                    state: State::Disconnected as i32,
-                    role: Role::Candidate as i32,
-                };
-                let json = serde_json::to_string(&node_details).unwrap();
-
-                match discovery_container
-                    .discovery
-                    .put(key.as_str(), json.as_str())
-                    .await
-                {
-                    Ok(_) => (),
-                    Err(e) => {
-                        return Err(Box::try_from(IOError::new(
-                            ErrorKind::Other,
-                            format!("failed to watch: error={:?}", e),
-                        ))
-                        .unwrap())
-                    }
-                };
-            }
-        },
+    let node_details = NodeDetails {
+        address: format!("{}:{}", host, grpc_port),
+        state: State::Disconnected as i32,
+        role: Role::Candidate as i32,
+    };
+    let json = serde_json::to_string(&node_details).unwrap();
+    match discovery_container
+        .discovery
+        .put(key.as_str(), json.as_str())
+        .await
+    {
+        Ok(_) => (),
         Err(e) => {
-            return Err(Box::try_from(IOError::new(
-                ErrorKind::Other,
-                format!("failed to watch: error={:?}", e),
-            ))
-            .unwrap())
+            return Err(e);
         }
     };
 
+    // node watcher
+    let watcher = Watcher::new(
+        index_name,
+        shard_name,
+        node_name,
+        discovery_container,
+        index_directory,
+        storage_container.clone(),
+    );
+
+    // index service
+    let index_service = IndexService::new(
+        index_name,
+        shard_name,
+        // node_name,
+        index_config,
+        storage_container,
+        watcher,
+    );
+
     // start gRPC server
-    let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
-    let grpc_service = IndexService::new(index);
+    let grpc_addr = format!("{}:{}", host, grpc_port)
+        .to_socket_addrs()
+        .unwrap()
+        .next()
+        .unwrap();
     tokio::spawn(
         TonicServer::builder()
-            .add_service(IndexServiceServer::new(grpc_service))
+            .add_service(IndexServiceServer::new(index_service))
             .serve(grpc_addr),
     );
-    info!("start gRPC server on {}", grpc_addr);
+    info!("start gRPC server on {}", grpc_addr.to_string());
 
     // create gRPC client
-    let grpc_server_url = format!("http://{}:{}", host, grpc_port);
+    let grpc_server_url = format!("http://{}", grpc_addr.to_string());
     let mut grpc_client = IndexServiceClient::connect(grpc_server_url.clone())
         .await
         .unwrap();
-    info!("create gRPC client for {}", &grpc_server_url);
 
-    // start HTTP server
+    // http service
+    let http_addr = format!("{}:{}", host, http_port)
+        .to_socket_addrs()
+        .unwrap()
+        .next()
+        .unwrap();
     let grpc_client2 = grpc_client.clone();
-    let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
     let http_service = make_service_fn(move |_| {
         let grpc_client = grpc_client2.clone();
         async move { Ok::<_, Infallible>(service_fn(move |req| handle(grpc_client.clone(), req))) }
     });
+
+    // start HTTP server
     tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
-    info!("start HTTP server on {}", http_addr);
+    info!("start HTTP server on {}", http_addr.to_string());
 
     // watch
     let watch_req = Request::new(WatchReq { interval: 0 });
     match grpc_client.watch(watch_req).await {
         Ok(_) => (),
         Err(e) => {
-            return Err(Box::try_from(IOError::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 format!("failed to watch: error={:?}", e),
-            ))
-            .unwrap())
+            )));
         }
     };
 
@@ -425,11 +410,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     match grpc_client.unwatch(unwatch_req).await {
         Ok(_) => (),
         Err(e) => {
-            return Err(Box::try_from(IOError::new(
+            return Err(Box::new(IOError::new(
                 ErrorKind::Other,
                 format!("failed to unwatch: error={:?}", e),
-            ))
-            .unwrap())
+            )));
         }
     };
 
