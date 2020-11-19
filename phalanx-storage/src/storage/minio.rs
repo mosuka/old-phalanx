@@ -32,9 +32,7 @@ pub struct Minio {
 }
 
 impl Minio {
-    pub fn new(
-        config: MinioConfig,
-    ) -> Minio {
+    pub fn new(config: MinioConfig) -> Minio {
         let credentials =
             StaticProvider::new_minimal(config.access_key.clone(), config.secret_key.clone());
 
@@ -59,10 +57,7 @@ impl Minio {
             }
         };
 
-        Minio {
-            config,
-            client,
-        }
+        Minio { config, client }
     }
 }
 

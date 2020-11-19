@@ -346,10 +346,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     );
 
     // index service
-    let index_service = IndexService::new(
-        index_config,
-        watcher,
-    );
+    let index_service = IndexService::new(index_config, watcher);
 
     // start gRPC server
     let grpc_addr = format!("{}:{}", host, grpc_port)

@@ -53,10 +53,7 @@ pub struct IndexService {
 }
 
 impl IndexService {
-    pub fn new(
-        index_config: IndexConfig,
-        watcher: Watcher,
-    ) -> IndexService {
+    pub fn new(index_config: IndexConfig, watcher: Watcher) -> IndexService {
         // create index directory
         fs::create_dir_all(&index_config.index_dir).unwrap_or_default();
 
