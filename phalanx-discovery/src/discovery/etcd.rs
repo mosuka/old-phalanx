@@ -295,7 +295,7 @@ impl Discovery for Etcd {
                                     },
                                 };
 
-                                info!("sent: event={:?}", &event);
+                                debug!("sent: event={:?}", &event);
                                 match sender.send(event) {
                                     Ok(_) => (),
                                     Err(e) => {

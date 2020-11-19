@@ -1,7 +1,7 @@
 use std::convert::{Infallible, TryFrom};
 use std::error::Error;
 use std::io::{Error as IOError, ErrorKind};
-use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -144,30 +144,42 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let overseer = Overseer::new(discovery_container);
 
+    // overseer service
+    let grpc_addr = format!("{}:{}", host, grpc_port)
+        .to_socket_addrs()
+        .unwrap()
+        .next()
+        .unwrap();
+    let overseer_service = OverseerService::new(overseer);
+
     // start gRPC server
-    let grpc_addr: SocketAddr = format!("{}:{}", host, grpc_port).parse().unwrap();
-    let grpc_service = OverseerService::new(overseer);
     tokio::spawn(
         TonicServer::builder()
-            .add_service(OverseerServiceServer::new(grpc_service))
+            .add_service(OverseerServiceServer::new(overseer_service))
             .serve(grpc_addr),
     );
-    info!("start gRPC server on {}", grpc_addr);
+    info!("start gRPC server on {}", grpc_addr.to_string());
 
     // create gRPC client
-    let grpc_server_url = format!("http://{}:{}", host, grpc_port);
+    let grpc_server_url = format!("http://{}", grpc_addr.to_string());
     let mut grpc_client = OverseerServiceClient::connect(grpc_server_url.clone())
         .await
         .unwrap();
 
-    // start HTTP server
-    let http_addr: SocketAddr = format!("{}:{}", host, http_port).parse().unwrap();
+    // http service
+    let http_addr = format!("{}:{}", host, http_port)
+        .to_socket_addrs()
+        .unwrap()
+        .next()
+        .unwrap();
     let http_service =
         make_service_fn(
             move |_| async move { Ok::<_, Infallible>(service_fn(move |req| handle(req))) },
         );
+
+    // start HTTP server
     tokio::spawn(HyperServer::bind(&http_addr).serve(http_service));
-    info!("start HTTP server on {}", http_addr);
+    info!("start HTTP server on {}", http_addr.to_string());
 
     // watch
     let watch_req = Request::new(WatchReq {

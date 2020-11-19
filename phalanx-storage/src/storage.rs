@@ -27,18 +27,6 @@ pub trait Storage: DynClone + Send + Sync + 'static {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     async fn delete(&self, key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
-    // async fn pull(
-    //     &self,
-    //     index_name: &str,
-    //     shard_name: &str,
-    // ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
-    // async fn push(
-    //     &self,
-    //     index_name: &str,
-    //     shard_name: &str,
-    // ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
 clone_trait_object!(Storage);
