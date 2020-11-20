@@ -257,7 +257,7 @@ impl Overseer {
             {
                 let mut discovery_container = discovery_container.clone();
 
-                debug!("initialize nodes cache");
+                // initialize nodes cache
                 let key = "/";
                 match discovery_container.discovery.list(key).await {
                     Ok(kvps) => {
@@ -290,10 +290,7 @@ impl Overseer {
                             };
 
                             // add node metadata to local cache
-                            info!(
-                                "set local node cash: key={}, node_details={:?}",
-                                &kvp.key, &node_details
-                            );
+                            debug!("{} has been set to local cache", &kvp.key);
                             let mut n = nodes.write().await;
                             n.insert(kvp.key, Some(node_details));
                         }
@@ -302,7 +299,6 @@ impl Overseer {
                         error!("failed to list: error={:?}", err);
                     }
                 };
-                debug!("nodes cache has been initialized");
             }
 
             loop {
@@ -320,7 +316,6 @@ impl Overseer {
                                 }
                             };
 
-                        debug!("update local node cache");
                         match event.event_type {
                             EventType::Put => {
                                 let node_details =
@@ -333,37 +328,29 @@ impl Overseer {
                                         }
                                     };
 
-                                info!(
-                                    "set local node cash: key={}, node_details={:?}",
-                                    &event.key, &node_details
-                                );
+                                debug!("{} has been set to local cache", &event.key);
                                 let mut n = nodes.write().await;
                                 n.insert(event.key.to_string(), Some(node_details));
                             }
                             EventType::Delete => {
-                                info!("delete local node cash: key={}", &event.key);
+                                debug!("delete local node cash: key={}", &event.key);
                                 let mut n = nodes.write().await;
                                 n.remove(event.key.as_str());
                             }
                         };
-                        debug!("local node cache has been updated");
 
-                        debug!("make a ready candidate node an replica node");
                         let sel_key = format!("/{}/{}/", index_name, shard_name);
-                        debug!("check the nodes under {}", &sel_key);
                         match discovery_container.discovery.list(sel_key.as_str()).await {
                             Ok(kvps) => {
                                 for kvp in kvps {
                                     match parse_node_meta_key(&kvp.key) {
                                         Ok(_) => (),
-                                        Err(e) => {
+                                        Err(_e) => {
                                             // ignore keys that do not match the pattern
-                                            debug!("node meta key parse error: error={:?}", e);
                                             continue;
                                         }
                                     }
 
-                                    debug!("check: key={}", &kvp.key);
                                     let mut node_details = match kvp.value {
                                         Some(value) => {
                                             match serde_json::from_str::<NodeDetails>(
@@ -377,7 +364,7 @@ impl Overseer {
                                             }
                                         }
                                         None => {
-                                            error!("value is empty");
+                                            error!("{}, value is empty", &kvp.key);
                                             continue;
                                         }
                                     };
@@ -394,8 +381,8 @@ impl Overseer {
                                         {
                                             Ok(_) => {
                                                 info!(
-                                                    "put node metadata: key={}, value={}",
-                                                    &kvp.key, &value
+                                                    "{} has changed from a candidate to a replica",
+                                                    &kvp.key
                                                 );
                                             }
                                             Err(e) => {
@@ -405,12 +392,6 @@ impl Overseer {
                                                 );
                                             }
                                         };
-                                    } else {
-                                        debug!(
-                                            "{} is not a node to be updated: node_details={:?}",
-                                            &kvp.key, &node_details
-                                        );
-                                        continue;
                                     }
                                 }
                             }
@@ -418,23 +399,16 @@ impl Overseer {
                                 error!("failed to list: error={:?}", e);
                             }
                         };
-                        debug!("the ready candidate nodes have been made into replica nodes");
 
-                        debug!("make a ready replica node a primary node");
                         match discovery_container.discovery.list(sel_key.as_str()).await {
                             Ok(kvps) => {
                                 let mut primary_exists = false;
 
-                                debug!(
-                                    "check whether the primary node already exists under {}",
-                                    &sel_key
-                                );
                                 for kvp in kvps.iter() {
                                     match parse_node_meta_key(&kvp.key) {
                                         Ok(_) => (),
-                                        Err(e) => {
+                                        Err(_e) => {
                                             // ignore keys that do not match the pattern
-                                            debug!("node meta key parse error: error={:?}", e);
                                             continue;
                                         }
                                     };
@@ -449,6 +423,7 @@ impl Overseer {
                                                         && node_details.role == Role::Primary as i32
                                                     {
                                                         primary_exists = true;
+                                                        break;
                                                     }
                                                 }
                                                 Err(e) => {
@@ -461,24 +436,17 @@ impl Overseer {
                                         }
                                     };
                                 }
-                                debug!(
-                                    "checked whether the primary node already exists under {}",
-                                    &sel_key
-                                );
 
                                 if !primary_exists {
-                                    info!("there is no primary node under {}", sel_key);
                                     for kvp in kvps.iter() {
                                         match parse_node_meta_key(&kvp.key) {
                                             Ok(_) => (),
-                                            Err(e) => {
+                                            Err(_e) => {
                                                 // ignore keys that do not match the pattern
-                                                debug!("node meta key parse error: error={:?}", e);
                                                 continue;
                                             }
                                         };
 
-                                        debug!("check: key={}", &kvp.key);
                                         let mut node_details = match &kvp.value {
                                             Some(value) => {
                                                 match serde_json::from_str::<NodeDetails>(
@@ -513,8 +481,8 @@ impl Overseer {
                                             {
                                                 Ok(_) => {
                                                     info!(
-                                                        "put node metadata: key={}, value={}",
-                                                        &kvp.key, &value
+                                                        "{} has changed from a replica to a primary",
+                                                        &kvp.key
                                                     );
                                                     break;
                                                 }
@@ -522,16 +490,8 @@ impl Overseer {
                                                     error!("failed to set: error={:?}", e);
                                                 }
                                             };
-                                        } else {
-                                            debug!(
-                                                "{} is not a node to be updated: node_details={:?}",
-                                                &kvp.key, &node_details
-                                            );
-                                            continue;
                                         }
                                     }
-                                } else {
-                                    info!("the primary node exists under {}", &sel_key);
                                 }
                             }
                             Err(e) => {
@@ -540,12 +500,12 @@ impl Overseer {
                         };
                     }
                     Err(TryRecvError::Disconnected) => {
-                        info!("channel disconnected");
+                        debug!("channel disconnected");
                         break;
                     }
                     Err(TryRecvError::Empty) => {
                         if unreceive.load(Ordering::Relaxed) {
-                            info!("receive a stop signal");
+                            debug!("receive a stop signal");
                             // restore unreceive to false
                             unreceive.store(false, Ordering::Relaxed);
                             break;
@@ -635,14 +595,12 @@ impl Overseer {
                         };
 
                         let grpc_server_url = format!("http://{}", node_details.address);
-
-                        debug!("connect: {}", grpc_server_url);
                         let mut grpc_client =
                             match IndexServiceClient::connect(grpc_server_url.clone()).await {
                                 Ok(grpc_client) => grpc_client,
                                 Err(_e) => {
                                     if node_details.state != State::Disconnected as i32 {
-                                        info!("disconnected: {}", &grpc_server_url);
+                                        error!("{} has been disconnected", key);
                                         let new_node_details = NodeDetails {
                                             address: node_details.address.clone(),
                                             state: State::Disconnected as i32,
@@ -655,32 +613,26 @@ impl Overseer {
                                             .put(key.as_str(), value.as_str())
                                             .await
                                         {
-                                            Ok(_) => {
-                                                info!(
-                                                    "put node metadata: key={}, value={}",
-                                                    key, &value
-                                                );
-                                            }
+                                            Ok(_) => (),
                                             Err(e) => {
                                                 error!("failed to put: error={:?}", e);
                                             }
                                         };
                                     } else {
                                         // still disconnected
-                                        debug!("disconnected: {}", &grpc_server_url);
+                                        debug!("{} has been disconnected", key);
                                     }
 
                                     continue;
                                 }
                             };
 
-                        debug!("readiness check: {}", &grpc_server_url);
                         let readiness_req = tonic::Request::new(ReadinessReq {});
                         let resp = match grpc_client.readiness(readiness_req).await {
                             Ok(resp) => resp,
                             Err(_e) => {
                                 if node_details.state != State::NotReady as i32 {
-                                    info!("not ready: {}", &grpc_server_url);
+                                    warn!("{} is not ready", key);
                                     let new_node_details = NodeDetails {
                                         address: node_details.address.clone(),
                                         state: State::NotReady as i32,
@@ -692,30 +644,24 @@ impl Overseer {
                                         .put(key.as_str(), value.as_str())
                                         .await
                                     {
-                                        Ok(_) => {
-                                            info!(
-                                                "put node metadata: key={}, value={}",
-                                                key, &value
-                                            );
-                                        }
+                                        Ok(_) => (),
                                         Err(e) => {
                                             error!("failed to set: error={:?}", e);
                                         }
                                     };
                                 } else {
                                     // still not ready
-                                    debug!("not ready: {}", &grpc_server_url);
+                                    debug!("{} is not ready", key);
                                 }
 
                                 continue;
                             }
                         };
 
-                        debug!("check readiness response: {}", &grpc_server_url);
                         match resp.into_inner().state {
                             state if state == State::Ready as i32 => {
                                 if node_details.state != State::Ready as i32 {
-                                    info!("ready: {}", &grpc_server_url);
+                                    info!("{} is ready", key);
                                     let new_node_details = NodeDetails {
                                         address: node_details.address.clone(),
                                         state: State::Ready as i32,
@@ -727,24 +673,19 @@ impl Overseer {
                                         .put(key.as_str(), value.as_str())
                                         .await
                                     {
-                                        Ok(_) => {
-                                            info!(
-                                                "put node metadata: key={}, value={}",
-                                                key, &value
-                                            );
-                                        }
+                                        Ok(_) => (),
                                         Err(e) => {
                                             error!("failed to set: error={:?}", e);
                                         }
                                     };
                                 } else {
                                     // no state changes
-                                    debug!("ready: {}", &grpc_server_url);
+                                    debug!("{} is ready", key);
                                 }
                             }
                             _ => {
                                 if node_details.state != State::NotReady as i32 {
-                                    info!("not ready: {}", &grpc_server_url);
+                                    warn!("{} is not ready", key);
                                     let new_node_details = NodeDetails {
                                         address: node_details.address.clone(),
                                         state: State::NotReady as i32,
@@ -756,19 +697,14 @@ impl Overseer {
                                         .put(key.as_str(), value.as_str())
                                         .await
                                     {
-                                        Ok(_) => {
-                                            info!(
-                                                "put node metadata: key={}, value={}",
-                                                key, &value
-                                            );
-                                        }
+                                        Ok(_) => (),
                                         Err(e) => {
                                             error!("failed to set: error={:?}", e);
                                         }
                                     };
                                 } else {
                                     // still not ready
-                                    debug!("not ready: {}", &grpc_server_url);
+                                    debug!("{} is not ready", key);
                                 }
                             }
                         }

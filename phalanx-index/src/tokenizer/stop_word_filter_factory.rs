@@ -14,7 +14,7 @@ impl StopWordFilterFactory {
         let v: Value = match serde_json::from_str(json) {
             Result::Ok(val) => val,
             Result::Err(err) => {
-                warn!("failed to parse JSON: {}", err.to_string());
+                error!("failed to parse JSON: {}", err.to_string());
                 serde_json::Value::Null
             }
         };
@@ -26,12 +26,12 @@ impl StopWordFilterFactory {
                         w.iter().map(|s| s.as_str().unwrap().to_string()).collect(),
                     )
                 } else {
-                    warn!("words are empty. set default words");
+                    debug!("words are empty. set default words");
                     StopWordFilter::default()
                 }
             }
             _ => {
-                warn!("words are missing. set default words");
+                debug!("words are missing. set default words");
                 StopWordFilter::default()
             }
         }

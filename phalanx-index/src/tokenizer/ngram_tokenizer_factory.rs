@@ -14,7 +14,7 @@ impl NgramTokenizerFactory {
         let v: Value = match serde_json::from_str(json) {
             Result::Ok(val) => val,
             Result::Err(err) => {
-                warn!("failed to parse JSON: {}", err.to_string());
+                error!("failed to parse JSON: {}", err.to_string());
                 serde_json::Value::Null
             }
         };
@@ -25,7 +25,7 @@ impl NgramTokenizerFactory {
                 min_gram = l as usize;
             }
             _ => {
-                warn!("min_gram is missing. set 1 as default");
+                debug!("min_gram is missing. set 1 as default");
                 min_gram = 1 as usize;
             }
         }
@@ -36,7 +36,7 @@ impl NgramTokenizerFactory {
                 max_gram = l as usize;
             }
             _ => {
-                warn!("max_gram is missing. set 1 as default");
+                debug!("max_gram is missing. set 1 as default");
                 max_gram = 1 as usize;
             }
         }
@@ -47,7 +47,7 @@ impl NgramTokenizerFactory {
                 prefix_only = l;
             }
             _ => {
-                warn!("prefix_only is missing. set false as default");
+                debug!("prefix_only is missing. set false as default");
                 prefix_only = false;
             }
         }

@@ -14,7 +14,7 @@ impl StemmingFilterFactory {
         let v: Value = match serde_json::from_str(json) {
             Result::Ok(val) => val,
             Result::Err(err) => {
-                warn!("failed to parse JSON: {}", err.to_string());
+                error!("failed to parse JSON: {}", err.to_string());
                 serde_json::Value::Null
             }
         };
@@ -45,7 +45,7 @@ impl StemmingFilterFactory {
                 }
             },
             _ => {
-                warn!("stemmer_algorithm is missing. set \"English\" as default");
+                debug!("stemmer_algorithm is missing. set \"English\" as default");
                 stemmer_algorithm = Language::English;
             }
         }

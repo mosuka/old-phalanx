@@ -14,7 +14,7 @@ impl LinderaTokenizerFactory {
         let v: Value = match serde_json::from_str(json) {
             Result::Ok(val) => val,
             Result::Err(err) => {
-                warn!("failed to parse JSON: {}", err.to_string());
+                error!("failed to parse JSON: {}", err.to_string());
                 serde_json::Value::Null
             }
         };
@@ -25,7 +25,7 @@ impl LinderaTokenizerFactory {
                 mode = m;
             }
             _ => {
-                warn!("mode is missing. set `normal` as default");
+                debug!("mode is missing. set `normal` as default");
                 mode = "normal";
             }
         }
@@ -36,7 +36,7 @@ impl LinderaTokenizerFactory {
                 dict = d;
             }
             _ => {
-                warn!("dict is missing. set `` as default");
+                debug!("dict is missing. set `` as default");
                 dict = "";
             }
         }
