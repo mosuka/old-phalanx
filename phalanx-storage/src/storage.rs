@@ -4,6 +4,8 @@ pub mod nop;
 use async_trait::async_trait;
 use dyn_clone::{clone_trait_object, DynClone};
 
+pub const DEFAULT_BUCKET: &str = "phalanx";
+
 #[async_trait]
 pub trait Storage: DynClone + Send + Sync + 'static {
     fn get_type(&self) -> &str;

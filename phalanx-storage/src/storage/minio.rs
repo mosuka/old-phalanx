@@ -5,10 +5,10 @@ use async_trait::async_trait;
 use log::*;
 use rusoto_core::credential::StaticProvider;
 use rusoto_core::request::HttpClient;
-use rusoto_core::{ByteStream, Region};
+use rusoto_core::{ByteStream, Region, RusotoError};
 use rusoto_s3::{
-    CreateBucketConfiguration, CreateBucketRequest, DeleteObjectRequest, GetObjectRequest,
-    ListObjectsRequest, PutObjectRequest, S3Client, S3,
+    CreateBucketConfiguration, CreateBucketError, CreateBucketRequest, DeleteObjectRequest,
+    GetObjectRequest, ListObjectsRequest, PutObjectRequest, S3Client, S3,
 };
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
@@ -16,6 +16,9 @@ use tokio::io::AsyncReadExt;
 use crate::storage::Storage;
 
 pub const TYPE: &str = "minio";
+pub const DEFAULT_ACCESS_KEY: &str = "minioadmin";
+pub const DEFAULT_SECRET_KEY: &str = "minioadmin";
+pub const DEFAULT_ENDPOINT: &str = "http://127.0.0.1:9000";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct MinioConfig {
@@ -52,6 +55,9 @@ impl Minio {
         });
         match block_on(future) {
             Ok(_output) => (),
+            Err(RusotoError::Service(CreateBucketError::BucketAlreadyOwnedByYou(msg))) => {
+                debug!("{}", msg);
+            }
             Err(e) => {
                 warn!("failed to create bucket: error = {:?}", e);
             }

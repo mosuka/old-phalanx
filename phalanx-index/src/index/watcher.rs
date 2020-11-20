@@ -20,7 +20,7 @@ use tonic::codegen::Arc;
 use walkdir::WalkDir;
 
 use phalanx_discovery::discovery::etcd::{Etcd, EtcdConfig, TYPE as ETCD_TYPE};
-use phalanx_discovery::discovery::nop::Nop;
+use phalanx_discovery::discovery::nop::{Nop, TYPE as NOP_TYPE};
 use phalanx_proto::phalanx::{NodeDetails, Role, State};
 
 lazy_static! {
@@ -116,6 +116,11 @@ impl Watcher {
     }
 
     pub async fn watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if self.discovery_container.discovery.get_type() == NOP_TYPE {
+            debug!("the NOP discovery does not do anything");
+            return Ok(());
+        }
+
         if self.receiving.load(Ordering::Relaxed) {
             let msg = "receiver is already running";
             warn!("{}", msg);
@@ -154,7 +159,7 @@ impl Watcher {
         let storage_container = self.storage_container.clone();
 
         tokio::spawn(async move {
-            info!("start receive thread");
+            info!("start cluster watch thread");
             receiving.store(true, Ordering::Relaxed);
 
             let storage_container = storage_container.clone();
@@ -175,37 +180,33 @@ impl Watcher {
                             && shard_name == my_shard_name
                             && node_name == my_node_name
                         {
-                            info!("node mata has been changed: event={:?}", event.clone());
                             match event.event_type {
                                 EventType::Put => {
+                                    debug!("{} has been updated", &event.key);
                                     match serde_json::from_str::<NodeDetails>(event.value.as_str())
                                     {
                                         Ok(nd) => {
-                                            info!(
-                                                "set local node cash: node_details={:?}",
-                                                &node_details
-                                            );
                                             let mut m = node_details.write().await;
                                             m.address = nd.address;
                                             m.state = nd.state;
                                             m.role = nd.role;
                                         }
                                         Err(err) => {
-                                            error!("failed to parse JSON: error={:?}", err);
+                                            error!(
+                                                "failed to parse JSON: key={}, error={:?}",
+                                                &event.key, err
+                                            );
                                         }
                                     };
-                                    info!("{:?}", event);
                                 }
                                 EventType::Delete => {
-                                    info!("{:?}", event);
+                                    debug!("{} has been deleted", &event.key);
                                 }
                             }
                         } else if index_name == my_index_name
                             && shard_name == my_shard_name
                             && node_name == "_index_meta"
                         {
-                            info!("index mata has been changed: key={:?}", &event.key);
-
                             // replica node only
                             let m = node_details.read().await;
                             if m.role != Role::Replica as i32 {
@@ -380,12 +381,12 @@ impl Watcher {
                         }
                     }
                     Err(TryRecvError::Disconnected) => {
-                        info!("channel disconnected");
+                        debug!("channel disconnected");
                         break;
                     }
                     Err(TryRecvError::Empty) => {
                         if unreceive.load(Ordering::Relaxed) {
-                            info!("receive a stop signal");
+                            debug!("receive a stop signal");
                             // restore unreceive to false
                             unreceive.store(false, Ordering::Relaxed);
                             break;
@@ -395,7 +396,7 @@ impl Watcher {
             }
 
             receiving.store(false, Ordering::Relaxed);
-            info!("stop receive thread");
+            info!("stop cluster watch thread");
         });
 
         let config_json = self
@@ -467,8 +468,6 @@ impl Watcher {
                         if event.kind == EventKind::Modify(ModifyKind::Name(RenameMode::Both))
                             && event.paths.last().unwrap() == &watch_file
                         {
-                            info!("meta.json has been changed: {:?}", event);
-
                             // list segment ids
                             let mut segment_ids = Vec::new();
                             let path = Path::new(&index_dir2).join("meta.json");
@@ -648,12 +647,12 @@ impl Watcher {
                         }
                     }
                     Err(TryRecvError::Disconnected) => {
-                        info!("watch local file channel disconnected");
+                        debug!("watch local file channel disconnected");
                         break;
                     }
                     Err(TryRecvError::Empty) => {
                         if unwatch_local.load(Ordering::Relaxed) {
-                            info!("receive a stop watch local file signal");
+                            debug!("receive a stop watch local file signal");
                             // restore unwatch_local to false
                             unwatch_local.store(false, Ordering::Relaxed);
                             break;
@@ -669,6 +668,11 @@ impl Watcher {
     }
 
     pub async fn unwatch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if self.discovery_container.discovery.get_type() == NOP_TYPE {
+            debug!("the NOP discovery does not do anything");
+            return Ok(());
+        }
+
         if !self.receiving.load(Ordering::Relaxed) {
             let msg = "receiver is not running";
             warn!("{}", msg);
@@ -689,16 +693,5 @@ impl Watcher {
         self.unwatch_local.store(true, Ordering::Relaxed);
 
         Ok(())
-    }
-
-    pub async fn get_node_meta(&self) -> NodeDetails {
-        let node_details = Arc::clone(&self.node_details);
-        let node_details = node_details.read().await;
-
-        NodeDetails {
-            address: node_details.address.clone(),
-            state: node_details.state,
-            role: node_details.role,
-        }
     }
 }

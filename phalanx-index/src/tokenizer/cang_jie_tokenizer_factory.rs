@@ -17,7 +17,7 @@ impl CangJieTokenizerFactory {
         let v: Value = match serde_json::from_str(json) {
             Result::Ok(val) => val,
             Result::Err(err) => {
-                warn!("failed to parse JSON: {}", err.to_string());
+                error!("failed to parse JSON: {}", err.to_string());
                 serde_json::Value::Null
             }
         };
@@ -28,7 +28,7 @@ impl CangJieTokenizerFactory {
                 hmm = l;
             }
             _ => {
-                warn!("hmm is missing. set false as default");
+                debug!("hmm is missing. set false as default");
                 hmm = false;
             }
         }
@@ -45,7 +45,7 @@ impl CangJieTokenizerFactory {
                 }
             },
             _ => {
-                warn!("tokenizer_option is missing. set \"Default\" as default");
+                debug!("tokenizer_option is missing. set \"Default\" as default");
                 tokenizer_option = TokenizerOption::Default { hmm };
             }
         }

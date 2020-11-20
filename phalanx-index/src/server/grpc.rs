@@ -29,6 +29,7 @@ use crate::index::search_request::{CollectionType, SearchRequest};
 use crate::index::search_result::{ScoredNamedFieldDocument, SearchResult};
 use crate::index::watcher::Watcher;
 use crate::tokenizer::tokenizer_initializer::TokenizerInitializer;
+use std::path::Path;
 
 lazy_static! {
     static ref REQUEST_COUNTER: CounterVec = register_counter_vec!(
@@ -55,10 +56,12 @@ pub struct IndexService {
 impl IndexService {
     pub fn new(index_config: IndexConfig, watcher: Watcher) -> IndexService {
         // create index directory
-        fs::create_dir_all(&index_config.index_dir).unwrap_or_default();
+        let p = Path::new(&index_config.index_dir);
+        fs::create_dir_all(p).unwrap_or_default();
 
         // create index
-        let dir = MmapDirectory::open(&index_config.index_dir).unwrap();
+        // let dir = MmapDirectory::open(&index_config.index_dir).unwrap();
+        let dir = MmapDirectory::open(p).unwrap();
         let index = if Index::exists(&dir) {
             // open index if the index exists in local file system
             match Index::open(dir) {

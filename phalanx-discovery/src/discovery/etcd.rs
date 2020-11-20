@@ -17,6 +17,7 @@ use tonic::transport::{Certificate, ClientTlsConfig, Identity};
 use crate::discovery::{Discovery, Event, EventType as DEventType, KeyValuePair};
 
 pub const TYPE: &str = "etcd";
+pub const DEFAULT_ENDPOINTS: &str = "http://127.0.0.1:2379";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EtcdConfig {
@@ -267,7 +268,7 @@ impl Discovery for Etcd {
         let actual_key = format!("{}{}", &root, key);
 
         tokio::spawn(async move {
-            info!("start watch thread");
+            info!("start watch etcd thread");
             watching.store(true, Ordering::Relaxed);
 
             let sender = sender.clone();
@@ -312,7 +313,7 @@ impl Discovery for Etcd {
             }
 
             watching.store(false, Ordering::Relaxed);
-            info!("stop watch thread");
+            info!("stop etcd watch thread");
         });
 
         Ok(())

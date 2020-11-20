@@ -14,7 +14,7 @@ impl RemoveLongFilterFactory {
         let v: Value = match serde_json::from_str(json) {
             Result::Ok(val) => val,
             Result::Err(err) => {
-                warn!("failed to parse JSON: {}", err.to_string());
+                error!("failed to parse JSON: {}", err.to_string());
                 serde_json::Value::Null
             }
         };
@@ -29,7 +29,7 @@ impl RemoveLongFilterFactory {
                 // supercalifragilisticexpialidocious
                 // pneumonoultramicroscopicsilicovolcanoconiosis
                 // Donaudampfschiffahrtselektrizitätenhauptbetriebswerkbauunterbeamtengesellschaft
-                warn!("length_limit is missing. set 80 as default");
+                debug!("length_limit is missing. set 80 as default");
                 length_limit = 80 as usize;
             }
         }

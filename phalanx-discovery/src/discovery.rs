@@ -10,6 +10,8 @@ use dyn_clone::{clone_trait_object, DynClone};
 use lazy_static::lazy_static;
 use prometheus::{register_gauge_vec, GaugeVec};
 
+pub const DEFAULT_ROOT: &str = "/phalanx";
+
 lazy_static! {
     static ref NODE_STATE_GAUGE: GaugeVec = register_gauge_vec!(
         "phalanx_discovery_node_state",

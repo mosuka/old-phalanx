@@ -14,11 +14,12 @@ use tonic::transport::Server as TonicServer;
 use tonic::Request;
 
 use phalanx_common::log::set_logger;
+use phalanx_common::path::expand_tilde;
 use phalanx_discovery::discovery::etcd::{
-    Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE,
+    Etcd as EtcdDiscovery, EtcdConfig, DEFAULT_ENDPOINTS, TYPE as ETCD_DISCOVERY_TYPE,
 };
 use phalanx_discovery::discovery::nop::Nop as NopDiscovery;
-use phalanx_discovery::discovery::DiscoveryContainer;
+use phalanx_discovery::discovery::{DiscoveryContainer, DEFAULT_ROOT};
 use phalanx_index::index::config::{
     IndexConfig, DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
@@ -29,10 +30,12 @@ use phalanx_index::server::http::handle;
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::index_service_server::IndexServiceServer;
 use phalanx_proto::phalanx::{NodeDetails, Role, State, UnwatchReq, WatchReq};
-use phalanx_storage::storage::minio::TYPE as MINIO_STORAGE_TYPE;
 use phalanx_storage::storage::minio::{Minio, MinioConfig};
+use phalanx_storage::storage::minio::{
+    DEFAULT_ACCESS_KEY, DEFAULT_ENDPOINT, DEFAULT_SECRET_KEY, TYPE as MINIO_STORAGE_TYPE,
+};
 use phalanx_storage::storage::nop::Nop as NopStorage;
-use phalanx_storage::storage::StorageContainer;
+use phalanx_storage::storage::{StorageContainer, DEFAULT_BUCKET};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -154,10 +157,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         )
         .arg(
             Arg::with_name("ETCD_ENDPOINTS")
-                .help("The etcd endpoints. Use `,` to separate address. Example: `192.168.1.10:2379,192.168.1.11:2379`")
+                .help("The etcd endpoints. Use `,` to separate address. Example: `http://192.168.1.10:2379,http://192.168.1.11:2379,http://192.168.1.12:2379`")
                 .long("etcd-endpoints")
-                .value_name("IP:PORT")
-                .default_value("127.0.0.1:2379")
+                .value_name("ETCD_ENDPOINTS")
+                .default_value(DEFAULT_ENDPOINTS)
                 .multiple(true)
                 .use_delimiter(true)
                 .require_delimiter(true)
@@ -169,7 +172,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .help("etcd root")
                 .long("etcd-root")
                 .value_name("ETCD_ROOT")
-                .default_value("/phalanx")
+                .default_value(DEFAULT_ROOT)
                 .takes_value(true),
         )
         .arg(
@@ -184,7 +187,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .help("Access key for MinIO.")
                 .long("minio-access-key")
                 .value_name("MINIO_ACCESS_KEY")
-                .default_value("minioadmin")
+                .default_value(DEFAULT_ACCESS_KEY)
                 .takes_value(true),
         )
         .arg(
@@ -192,7 +195,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .help("Secret key for MinIO.")
                 .long("minio-secret-key")
                 .value_name("MINIO_SECRET_KEY")
-                .default_value("minioadmin")
+                .default_value(DEFAULT_SECRET_KEY)
                 .takes_value(true),
         )
         .arg(
@@ -200,7 +203,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .help("MinIO endpoint.")
                 .long("minio-endpoint")
                 .value_name("MINIO_ENDPOINT")
-                .default_value("http://127.0.0.1:9000")
+                .default_value(DEFAULT_ENDPOINT)
                 .takes_value(true),
         )
         .arg(
@@ -208,7 +211,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 .help("MinIO bucket.")
                 .long("minio-bucket")
                 .value_name("MINIO_BUCKET")
-                .default_value("phalanx")
+                .default_value(DEFAULT_BUCKET)
                 .takes_value(true),
         );
 
@@ -226,10 +229,13 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .parse::<u16>()
         .unwrap();
 
-    let index_directory = matches.value_of("INDEX_DIRECTORY").unwrap();
-    let schema_file = matches.value_of("SCHEMA_FILE").unwrap();
+    let index_directory_path = expand_tilde(matches.value_of("INDEX_DIRECTORY").unwrap()).unwrap();
+    let index_directory = index_directory_path.to_str().unwrap();
+    let schema_file_path = expand_tilde(matches.value_of("SCHEMA_FILE").unwrap()).unwrap();
+    let schema_file = schema_file_path.to_str().unwrap();
     let unique_key_field = matches.value_of("UNIQUE_ID_FIELD").unwrap();
-    let tokenizer_file = matches.value_of("TOKENIZER_FILE").unwrap();
+    let tokenizer_file_path = expand_tilde(matches.value_of("TOKENIZER_FILE").unwrap()).unwrap();
+    let tokenizer_file = tokenizer_file_path.to_str().unwrap();
     let indexer_threads = matches
         .value_of("INDEXER_THREADS")
         .unwrap()
@@ -319,7 +325,12 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     // register a node
     let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
     let node_details = NodeDetails {
-        address: format!("{}:{}", host, grpc_port),
+        address: format!("{}:{}", host, grpc_port)
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap()
+            .to_string(),
         state: State::Disconnected as i32,
         role: Role::Candidate as i32,
     };
