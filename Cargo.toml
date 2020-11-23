@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "phalanx",
     "phalanx-client",
     "phalanx-common",
     "phalanx-discovery",

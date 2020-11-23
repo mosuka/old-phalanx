@@ -15,7 +15,3 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tantivy = "0.13"
 tokio = { version = "0.2", features = [ "full" ] }
-#walkdir = "2.3"
-
-phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
-phalanx-discovery = { version = "0.1.0", path = "../phalanx-discovery" }

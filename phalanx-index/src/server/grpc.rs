@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::io::{Error as IOError, ErrorKind};
+use std::path::Path;
 
 use lazy_static::lazy_static;
 use log::*;
@@ -29,7 +30,6 @@ use crate::index::search_request::{CollectionType, SearchRequest};
 use crate::index::search_result::{ScoredNamedFieldDocument, SearchResult};
 use crate::index::watcher::Watcher;
 use crate::tokenizer::tokenizer_initializer::TokenizerInitializer;
-use std::path::Path;
 
 lazy_static! {
     static ref REQUEST_COUNTER: CounterVec = register_counter_vec!(
