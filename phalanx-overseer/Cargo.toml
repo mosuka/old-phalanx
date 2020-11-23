@@ -4,14 +4,8 @@ version = "0.1.0"
 authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
 edition = "2018"
 
-[[bin]]
-name = "phalanx-overseer"
-path = "src/main.rs"
-
 [dependencies]
-clap = "2.33"
 crossbeam = "0.8"
-dyn-clone = "1.0"
 hyper = "0.13"
 lazy_static = "1.4"
 log = "0.4"
@@ -21,6 +15,5 @@ serde_json = "1.0"
 tokio = { version = "0.2", features = [ "full" ] }
 tonic = "0.3"
 
-phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
 phalanx-discovery = { version = "0.1.0", path = "../phalanx-discovery" }
 phalanx-proto = { version = "0.1.0", path = "../phalanx-proto" }

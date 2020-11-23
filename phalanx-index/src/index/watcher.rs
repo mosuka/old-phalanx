@@ -9,8 +9,6 @@ use lazy_static::lazy_static;
 use log::*;
 use notify::event::{ModifyKind, RenameMode};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as NWatcher};
-use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
-use phalanx_storage::storage::StorageContainer;
 use regex::Regex;
 use serde_json::Value;
 use tokio::fs::File;
@@ -21,7 +19,9 @@ use walkdir::WalkDir;
 
 use phalanx_discovery::discovery::etcd::{Etcd, EtcdConfig, TYPE as ETCD_TYPE};
 use phalanx_discovery::discovery::nop::{Nop, TYPE as NOP_TYPE};
+use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
 use phalanx_proto::phalanx::{NodeDetails, Role, State};
+use phalanx_storage::storage::StorageContainer;
 
 lazy_static! {
     static ref KEY_REGEX: Regex = Regex::new(r"^/([^/]+)/([^/]+)/([^/]+)\.json").unwrap();
