@@ -97,13 +97,13 @@ services:
     container_name: phalanx-index1
     image: mosuka/phalanx:latest
     ports:
-      - "15000:15000"
-      - "18000:18000"
+      - "1500:5000"
+      - "18000:8000"
     command:
       - 'index'
       - '--address=phalanx-index1'
-      - '--grpc-port=15000'
-      - '--http-port=18000'
+      - '--grpc-port=5000'
+      - '--http-port=8000'
       - '--index-directory=/var/lib/phalanx/index'
       - '--schema-file=/etc/phalanx/schema.json'
       - '--unique-id-field=id'
