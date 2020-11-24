@@ -18,65 +18,6 @@ services:
       - '--initial-cluster-state=new'
     ports:
       - "2379:2379"
-    volumes:
-      - etcd-data:/etcd_data
-#  etcd1:
-#    container_name: etcd1
-#    image: quay.io/coreos/etcd:v3.4.7
-#    entrypoint: /usr/local/bin/etcd
-#    command:
-#      - '--name=etcd1'
-#      - '--initial-advertise-peer-urls=http://etcd1:2380'
-#      - '--listen-peer-urls=http://0.0.0.0:2380'
-#      - '--listen-client-urls=http://0.0.0.0:2379'
-#      - '--advertise-client-urls=http://etcd1:2379'
-#      - '--initial-cluster-token=mys3cr3ttok3n'
-#      - '--heartbeat-interval=250'
-#      - '--election-timeout=1250'
-#      - '--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380'
-#      - '--initial-cluster-state=new'
-#    ports:
-#      - "2381:2379"
-#    volumes:
-#      - etcd1-data:/etcd_data
-#  etcd2:
-#    container_name: etcd2
-#    image: quay.io/coreos/etcd:v3.4.7
-#    entrypoint: /usr/local/bin/etcd
-#    command:
-#      - '--name=etcd2'
-#      - '--initial-advertise-peer-urls=http://etcd2:2380'
-#      - '--listen-peer-urls=http://0.0.0.0:2380'
-#      - '--listen-client-urls=http://0.0.0.0:2379'
-#      - '--advertise-client-urls=http://etcd2:2379'
-#      - '--initial-cluster-token=mys3cr3ttok3n'
-#      - '--heartbeat-interval=250'
-#      - '--election-timeout=1250'
-#      - '--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380'
-#      - '--initial-cluster-state=new'
-#    ports:
-#      - "2382:2379"
-#    volumes:
-#      - etcd2-data:/etcd_data
-#  etcd3:
-#    container_name: etcd3
-#    image: quay.io/coreos/etcd:v3.4.7
-#    entrypoint: /usr/local/bin/etcd
-#    command:
-#      - '--name=etcd3'
-#      - '--initial-advertise-peer-urls=http://etcd3:2380'
-#      - '--listen-peer-urls=http://0.0.0.0:2380'
-#      - '--listen-client-urls=http://0.0.0.0:2379'
-#      - '--advertise-client-urls=http://etcd3:2379'
-#      - '--initial-cluster-token=mys3cr3ttok3n'
-#      - '--heartbeat-interval=250'
-#      - '--election-timeout=1250'
-#      - '--initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380'
-#      - '--initial-cluster-state=new'
-#    ports:
-#      - "2383:2379"
-#    volumes:
-#      - etcd3-data:/etcd_data
 
   etcdkeeper:
     container_name: etcdkeeper
@@ -87,16 +28,10 @@ services:
       - "8080:8080"
     depends_on:
       - etcd
-#      - etcd1
-#      - etcd2
-#      - etcd3
 
   minio:
     container_name: minio
     image: minio/minio:RELEASE.2020-07-02T00-15-09Z
-    volumes:
-      - minio-data1:/data1
-      - minio-data2:/data2
     ports:
       - "9000:9000"
     environment:
@@ -108,84 +43,82 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-#  minio1:
-#    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
-#    volumes:
-#      - minio1-data1:/data1
-#      - minio1-data2:/data2
-#    ports:
-#      - "9001:9000"
-#    environment:
-#      MINIO_ACCESS_KEY: minioadmin
-#      MINIO_SECRET_KEY: minioadmin
-#    command: server http://minio{1...4}/data{1...2}
-#    healthcheck:
-#      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-#      interval: 30s
-#      timeout: 20s
-#      retries: 3
-#  minio2:
-#    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
-#    volumes:
-#      - minio2-data1:/data1
-#      - minio2-data2:/data2
-#    ports:
-#      - "9002:9000"
-#    environment:
-#      MINIO_ACCESS_KEY: minioadmin
-#      MINIO_SECRET_KEY: minioadmin
-#    command: server http://minio{1...4}/data{1...2}
-#    healthcheck:
-#      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-#      interval: 30s
-#      timeout: 20s
-#      retries: 3
-#  minio3:
-#    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
-#    volumes:
-#      - minio3-data1:/data1
-#      - minio3-data2:/data2
-#    ports:
-#      - "9003:9000"
-#    environment:
-#      MINIO_ACCESS_KEY: minioadmin
-#      MINIO_SECRET_KEY: minioadmin
-#    command: server http://minio{1...4}/data{1...2}
-#    healthcheck:
-#      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-#      interval: 30s
-#      timeout: 20s
-#      retries: 3
-#  minio4:
-#    image: minio/minio:RELEASE.2020-07-02T00-15-09Z
-#    volumes:
-#      - minio4-data1:/data1
-#      - minio4-data2:/data2
-#    ports:
-#      - "9004:9000"
-#    environment:
-#      MINIO_ACCESS_KEY: minioadmin
-#      MINIO_SECRET_KEY: minioadmin
-#    command: server http://minio{1...4}/data{1...2}
-#    healthcheck:
-#      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-#      interval: 30s
-#      timeout: 20s
-#      retries: 3
 
-volumes:
-  etcd-data:
-#  etcd1-data:
-#  etcd2-data:
-#  etcd3-data:
+  phalanx-overseer:
+    container_name: phalanx-overseer
+    image: mosuka/phalanx:latest
+    ports:
+      - "5100:5100"
+      - "8100:8100"
+    command:
+      - 'overseer'
+      - '--address=phalanx-overseer'
+      - '--grpc-port=5100'
+      - '--http-port=8100'
+      - '--discovery-type=etcd'
+      - '--discovery-root=/phalanx'
+      - '--etcd-endpoints=http://etcd:2379'
+      - '--probe-interval=100'
+    depends_on:
+      - etcd
+      - minio
 
-  minio-data1:
-  minio-data2:
-#  minio1-data1:
-#  minio1-data2:
-#  minio2-data1:
-#  minio2-data2:
-#  minio3-data1:
-#  minio3-data2:
-#  minio4-data1:
-#  minio4-data2:
+  phalanx-index0:
+    container_name: phalanx-index0
+    image: mosuka/phalanx:latest
+    ports:
+      - "5000:5000"
+      - "8000:8000"
+    command:
+      - 'index'
+      - '--address=phalanx-index0'
+      - '--grpc-port=5000'
+      - '--http-port=8000'
+      - '--index-directory=/var/lib/phalanx/index'
+      - '--schema-file=/etc/phalanx/schema.json'
+      - '--unique-id-field=id'
+      - '--tokenizer-file=/etc/phalanx/tokenizer.json'
+      - '--index-name=index0'
+      - '--shard-name=shard0'
+      - '--node-name=node0'
+      - '--discovery-type=etcd'
+      - '--discovery-root=/phalanx'
+      - '--etcd-endpoints=http://etcd:2379'
+      - '--storage-type=minio'
+      - '--storage-bucket=phalanx'
+      - '--minio-access-key=minioadmin'
+      - '--minio-secret-key=minioadmin'
+      - '--minio-endpoint=http://minio:9000'
+    depends_on:
+      - etcd
+      - minio
+
+  phalanx-index1:
+    container_name: phalanx-index1
+    image: mosuka/phalanx:latest
+    ports:
+      - "15000:15000"
+      - "18000:18000"
+    command:
+      - 'index'
+      - '--address=phalanx-index1'
+      - '--grpc-port=15000'
+      - '--http-port=18000'
+      - '--index-directory=/var/lib/phalanx/index'
+      - '--schema-file=/etc/phalanx/schema.json'
+      - '--unique-id-field=id'
+      - '--tokenizer-file=/etc/phalanx/tokenizer.json'
+      - '--index-name=index0'
+      - '--shard-name=shard0'
+      - '--node-name=node1'
+      - '--discovery-type=etcd'
+      - '--discovery-root=/phalanx'
+      - '--etcd-endpoints=http://etcd:2379'
+      - '--storage-type=minio'
+      - '--storage-bucket=phalanx'
+      - '--minio-access-key=minioadmin'
+      - '--minio-secret-key=minioadmin'
+      - '--minio-endpoint=http://minio:9000'
+    depends_on:
+      - etcd
+      - minio
