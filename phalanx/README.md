@@ -273,7 +273,8 @@ $ phalanx index --address=0.0.0.0 \
                 --minio-endpoint=http://127.0.0.1:9000
 ```
 
-You can check the cluster information by opening etcdkeeper in your browser and connecting to `etcd:2379`.
+You can see the cluster information by opening a following URL in your browser and connecting to `etcd:2379`:
+
 http://localhost:8080/etcdkeeper/
 
 If you run the above commands, `/phalanx/index0/shard0/node0.json` will be as follows:
