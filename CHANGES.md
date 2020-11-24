@@ -3,6 +3,8 @@ All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
+- Add workflows #34 @mosuka
+- Add FUNDING.yml #33 @mosuka
 - Update Dockerfile #32 @mosuka
 - Add phalanx package #31 @mosuka
 - Expand tilder #30 @mosuka
