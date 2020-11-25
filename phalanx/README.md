@@ -199,9 +199,9 @@ $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phala
 ```
 
 
-### Start in standalone mode
+### Start in cluster mode
 
-Phalanx in cluster mode requires etcd for service discovery and MinIO for remote index storage.
+Phalanx in cluster mode requires [etcd](https://etcd.io/) for service discovery and [MinIO](https://min.io/) for remote index storage.
 Dependent components for testing must be started as following:
 
 ```shell script
