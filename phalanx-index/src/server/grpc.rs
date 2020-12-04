@@ -183,9 +183,7 @@ impl IndexService {
         };
 
         match serde_json::to_vec(&named_doc) {
-            Ok(doc) => {
-                Ok(Some(doc))
-            }
+            Ok(doc) => Ok(Some(doc)),
             Err(e) => {
                 return Err(Box::new(IOError::new(
                     ErrorKind::Other,
