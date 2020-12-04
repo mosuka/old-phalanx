@@ -23,7 +23,7 @@ Currently it only supports gRPC. Please connect using the gRPC client as follows
 You can confirm current schema with the following command:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Schema | jq -r '.schema' | jq .
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Schema | jq -r '.schema | @base64d' | jq .
 ```
 
 #### Index document
@@ -31,7 +31,7 @@ $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phala
 You can index document with the following command:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | {doc:@json}' ./examples/doc_1.json)" -plaintext 0.0.0.0:5000 phalanx.IndexService/Set
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | {doc:@base64}' ./examples/doc_1.json)" -plaintext 0.0.0.0:5000 phalanx.IndexService/Set
 ```
 
 Then commit index with the following command:
@@ -45,7 +45,7 @@ $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phala
 You can get document with the following command:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "id": "1" }' -plaintext 0.0.0.0:5000 phalanx.IndexService/Get | jq -r '.doc' | jq .
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "id": "1" }' -plaintext 0.0.0.0:5000 phalanx.IndexService/Get | jq -r '.doc | @base64d' | jq .
 ```
 
 You'll see the result in JSON format. The result of the above command is:
@@ -82,7 +82,7 @@ You'll see the result in JSON format. The result of the above command is:
 You can index documents in bulk with the following command:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | @json' ./examples/bulk_put.jsonl | jq -s -c '{ docs:. }')" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkSet
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | @base64' ./examples/bulk_put.jsonl | jq -s -c '{ docs:. }')" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkSet
 ```
 
 Then commit index with the following command:
@@ -96,7 +96,7 @@ $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phala
 You can search documents with the following command:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq '. | @json' ./examples/search_request.json  | jq -s -c '{ request:. }')" -plaintext 0.0.0.0:5000 phalanx.IndexService/Search | jq -r '.result' | jq .
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq '. | @base64' ./examples/search_request.json  | jq -s -c '{ request:. }')" -plaintext 0.0.0.0:5000 phalanx.IndexService/Search | jq -r '.result | @base64d' | jq .
 ```
 
 You'll see the result in JSON format. The result of the above command is:

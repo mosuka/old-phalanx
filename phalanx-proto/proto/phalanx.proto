@@ -95,11 +95,11 @@ message GetReq {
 }
 
 message GetReply {
-    string doc = 1;
+    bytes doc = 1;
 }
 
 message SetReq {
-    string doc = 1;
+    bytes doc = 1;
 }
 
 message SetReply {}
@@ -111,7 +111,7 @@ message DeleteReq {
 message DeleteReply {}
 
 message BulkSetReq {
-    repeated string docs = 1;
+    repeated bytes docs = 1;
 }
 
 message BulkSetReply {}
@@ -137,13 +137,13 @@ message MergeReply {}
 message SchemaReq {}
 
 message SchemaReply {
-    string schema = 1;
+    bytes schema = 1;
 }
 
 message SearchReq {
-    string request = 1;
+    bytes request = 1;
 }
 
 message SearchReply {
-    string result = 1;
+    bytes result = 1;
 }

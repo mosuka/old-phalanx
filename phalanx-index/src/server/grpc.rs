@@ -147,7 +147,7 @@ impl IndexService {
         }
     }
 
-    pub async fn get(&self, id: &str) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    pub async fn get(&self, id: &str) -> Result<Option<Vec<u8>>, Box<dyn Error + Send + Sync>> {
         let term = Term::from_field_text(self.unique_key_field, id);
         let term_query = TermQuery::new(term, IndexRecordOption::Basic);
 
@@ -182,8 +182,10 @@ impl IndexService {
             }
         };
 
-        match serde_json::to_string(&named_doc) {
-            Ok(doc_str) => Ok(Some(doc_str)),
+        match serde_json::to_vec(&named_doc) {
+            Ok(doc) => {
+                Ok(Some(doc))
+            }
             Err(e) => {
                 return Err(Box::new(IOError::new(
                     ErrorKind::Other,
@@ -193,8 +195,17 @@ impl IndexService {
         }
     }
 
-    pub async fn set(&self, doc: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let doc = match self.index.schema().parse_document(doc) {
+    pub async fn set(&self, doc: Vec<u8>) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let doc_json = match String::from_utf8(doc) {
+            Ok(doc_json) => doc_json,
+            Err(e) => {
+                return Err(Box::new(IOError::new(
+                    ErrorKind::Other,
+                    format!("failed to convert document JSON: error={:?}", e),
+                )));
+            }
+        };
+        let doc = match self.index.schema().parse_document(&doc_json) {
             Ok(doc) => doc,
             Err(e) => {
                 return Err(Box::new(IOError::new(
@@ -245,7 +256,7 @@ impl IndexService {
         Ok(())
     }
 
-    pub async fn bulk_set(&self, docs: Vec<&str>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn bulk_set(&self, docs: Vec<Vec<u8>>) -> Result<(), Box<dyn Error + Send + Sync>> {
         let index_writer = self.index_writer.lock().await;
         let mut success_count = 0;
         let mut error_count = 0;
@@ -253,7 +264,16 @@ impl IndexService {
         for doc in docs {
             total_count += 1;
 
-            let doc_obj = match self.index.schema().parse_document(doc) {
+            let doc_json = match String::from_utf8(doc) {
+                Ok(doc_json) => doc_json,
+                Err(e) => {
+                    error!("failed to convert document JSON: error={:?}", e);
+                    error_count += 1;
+                    continue;
+                }
+            };
+
+            let doc_obj = match self.index.schema().parse_document(&doc_json) {
                 Ok(doc_obj) => doc_obj,
                 Err(e) => {
                     error!("failed to parse document JSON: error={:?}", e);
@@ -265,18 +285,18 @@ impl IndexService {
             let fields = doc_obj.get_all(self.unique_key_field);
             let value_count = fields.len();
             if value_count < 1 {
-                error!("unique key field not included: doc={}", doc);
+                error!("unique key field not included: doc={}", &doc_json);
                 error_count += 1;
                 continue;
             } else if value_count > 1 {
-                error!("multiple unique key fields included: doc={}", doc);
+                error!("multiple unique key fields included: doc={}", &doc_json);
                 error_count += 1;
                 continue;
             }
             let id = match fields.first().unwrap().text() {
                 Some(id) => id,
                 None => {
-                    error!("failed to get unique key field value: doc={}", doc);
+                    error!("failed to get unique key field value: doc={}", &doc_json);
                     error_count += 1;
                     continue;
                 }
@@ -605,8 +625,8 @@ impl ProtoIndexService for IndexService {
 
         match self.get(&req.id).await {
             Ok(resp) => match resp {
-                Some(json) => {
-                    let reply = GetReply { doc: json };
+                Some(doc) => {
+                    let reply = GetReply { doc };
 
                     timer.observe_duration();
 
@@ -635,7 +655,7 @@ impl ProtoIndexService for IndexService {
 
         let req = request.into_inner();
 
-        match self.set(&req.doc).await {
+        match self.set(req.doc).await {
             Ok(_) => {
                 let reply = SetReply {};
 
@@ -690,8 +710,8 @@ impl ProtoIndexService for IndexService {
 
         let req = request.into_inner();
 
-        let docs = req.docs.iter().map(|doc| doc.as_str()).collect();
-        match self.bulk_set(docs).await {
+        // let docs = req.docs.iter().map(|doc| doc.as_str()).collect();
+        match self.bulk_set(req.docs).await {
             Ok(_) => {
                 let reply = BulkSetReply {};
 
@@ -823,7 +843,7 @@ impl ProtoIndexService for IndexService {
             .with_label_values(&["schema"])
             .start_timer();
 
-        match serde_json::to_string(&self.schema()) {
+        match serde_json::to_vec(&self.schema()) {
             Ok(schema) => {
                 let reply = SchemaReply { schema };
 
@@ -850,7 +870,7 @@ impl ProtoIndexService for IndexService {
 
         let req = request.into_inner();
 
-        let search_request = match serde_json::from_str::<SearchRequest>(&req.request) {
+        let search_request = match serde_json::from_slice::<SearchRequest>(req.request.as_slice()) {
             Ok(search_request) => search_request,
             Err(e) => {
                 timer.observe_duration();
@@ -863,9 +883,9 @@ impl ProtoIndexService for IndexService {
         };
 
         match self.search(search_request).await {
-            Ok(result) => match serde_json::to_string(&result) {
-                Ok(json) => {
-                    let reply = SearchReply { result: json };
+            Ok(result) => match serde_json::to_vec(&result) {
+                Ok(result) => {
+                    let reply = SearchReply { result };
 
                     timer.observe_duration();
 

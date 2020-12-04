@@ -627,7 +627,7 @@ impl Overseer {
                         match resp.into_inner().state {
                             state if state == State::Ready as i32 => {
                                 if node_details.state != State::Ready as i32 {
-                                    debug!("{} is ready", key);
+                                    info!("{} is ready", key);
                                     let new_node_details = NodeDetails {
                                         address: node_details.address.clone(),
                                         state: State::Ready as i32,
