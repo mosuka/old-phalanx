@@ -182,7 +182,7 @@ impl Watcher {
                         {
                             match event.event_type {
                                 EventType::Put => {
-                                    debug!("{} has been updated", &event.key);
+                                    info!("{} has been updated", &event.key);
                                     match serde_json::from_slice::<NodeDetails>(
                                         event.value.as_slice(),
                                     ) {
@@ -313,7 +313,7 @@ impl Watcher {
                                             Some(content) => {
                                                 let file_path =
                                                     Path::new(&index_dir).join(object_name);
-                                                debug!(
+                                                info!(
                                                     "pull {} to {}",
                                                     &object_key,
                                                     &file_path.to_str().unwrap()
@@ -469,6 +469,8 @@ impl Watcher {
                         if event.kind == EventKind::Modify(ModifyKind::Name(RenameMode::Both))
                             && event.paths.last().unwrap() == &watch_file
                         {
+                            info!("{} has updated", &watch_file.to_str().unwrap());
+
                             // list segment ids
                             let mut segment_ids = Vec::new();
                             let path = Path::new(&index_dir2).join("meta.json");
@@ -552,7 +554,7 @@ impl Watcher {
                                     "{}/{}/{}",
                                     &my_index_name2, &my_shard_name2, &file_name
                                 );
-                                debug!("put {} to {}", &file_path, &object_key);
+                                info!("put {} to {}", &file_path, &object_key);
                                 match storage_container2
                                     .storage
                                     .set(object_key.as_str(), content.as_slice())
@@ -595,6 +597,7 @@ impl Watcher {
                                         "{}/{}/{}",
                                         &my_index_name2, &my_shard_name2, &object_name
                                     );
+                                    info!("delete {}", &object_key);
                                     match storage_container2
                                         .storage
                                         .delete(object_key.as_str())
@@ -632,6 +635,7 @@ impl Watcher {
                                 }
                             };
 
+                            info!("put {}", &key);
                             match discovery_container.discovery.put(key.as_str(), value).await {
                                 Ok(_) => {
                                     debug!("put index metadata: key={}", &key);
