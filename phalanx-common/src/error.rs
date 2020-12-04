@@ -9,6 +9,12 @@ pub enum ErrorKind {
     Cli(String),
     #[fail(display = "IO error")]
     Io,
+    #[fail(display = "Not found")]
+    NotFound(String),
+    #[fail(display = "Parse error")]
+    ParseError(String),
+    #[fail(display = "Other error")]
+    Other(String),
 }
 
 #[derive(Debug)]

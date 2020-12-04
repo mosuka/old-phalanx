@@ -288,7 +288,7 @@ impl IndexService {
             success_count += 1;
         }
 
-        info!(
+        debug!(
             "{} documents have been indexed: success documents={}, error documents={}",
             total_count, success_count, error_count
         );
@@ -315,7 +315,7 @@ impl IndexService {
             let _opstamp = index_writer.delete_term(term);
         }
 
-        info!("{} documents have been deleted", total_count);
+        debug!("{} documents have been deleted", total_count);
 
         Ok(())
     }

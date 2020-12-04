@@ -31,7 +31,7 @@ impl Discovery for Nop {
         Ok("{}".to_string())
     }
 
-    async fn get(&mut self, _key: &str) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    async fn get(&mut self, _key: &str) -> Result<Option<Vec<u8>>, Box<dyn Error + Send + Sync>> {
         Ok(None)
     }
 
@@ -42,7 +42,11 @@ impl Discovery for Nop {
         Ok(Vec::new())
     }
 
-    async fn put(&mut self, _key: &str, _value: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn put(
+        &mut self,
+        _key: &str,
+        _value: Vec<u8>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 

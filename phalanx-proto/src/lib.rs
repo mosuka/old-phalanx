@@ -1,6 +1,7 @@
 pub mod phalanx {
     use std::fmt;
 
+    use num::FromPrimitive;
     use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
     use serde::ser::{Serialize, SerializeStruct, Serializer};
 
@@ -139,9 +140,68 @@ pub mod phalanx {
         }
     }
 
+    impl FromPrimitive for State {
+        fn from_i32(n: i32) -> Option<Self> {
+            match n {
+                _ if n == State::Disconnected as i32 => Some(State::Disconnected),
+                _ if n == State::NotReady as i32 => Some(State::NotReady),
+                _ if n == State::Ready as i32 => Some(State::Ready),
+                _ => None,
+            }
+        }
+
+        fn from_i64(n: i64) -> Option<Self> {
+            match n {
+                _ if n == State::Disconnected as i64 => Some(State::Disconnected),
+                _ if n == State::NotReady as i64 => Some(State::NotReady),
+                _ if n == State::Ready as i64 => Some(State::Ready),
+                _ => None,
+            }
+        }
+
+        fn from_u64(n: u64) -> Option<Self> {
+            match n {
+                _ if n == State::Disconnected as u64 => Some(State::Disconnected),
+                _ if n == State::NotReady as u64 => Some(State::NotReady),
+                _ if n == State::Ready as u64 => Some(State::Ready),
+                _ => None,
+            }
+        }
+    }
+
+    impl FromPrimitive for Role {
+        fn from_i32(n: i32) -> Option<Self> {
+            match n {
+                _ if n == Role::Candidate as i32 => Some(Role::Candidate),
+                _ if n == Role::Replica as i32 => Some(Role::Replica),
+                _ if n == Role::Primary as i32 => Some(Role::Primary),
+                _ => None,
+            }
+        }
+
+        fn from_i64(n: i64) -> Option<Self> {
+            match n {
+                _ if n == Role::Candidate as i64 => Some(Role::Candidate),
+                _ if n == Role::Replica as i64 => Some(Role::Replica),
+                _ if n == Role::Primary as i64 => Some(Role::Primary),
+                _ => None,
+            }
+        }
+
+        fn from_u64(n: u64) -> Option<Self> {
+            match n {
+                _ if n == Role::Candidate as u64 => Some(Role::Candidate),
+                _ if n == Role::Replica as u64 => Some(Role::Replica),
+                _ if n == Role::Primary as u64 => Some(Role::Primary),
+                _ => None,
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use crate::phalanx::{NodeDetails, Role, State};
+        use num::FromPrimitive;
 
         #[test]
         fn test_deserialize() {
@@ -166,6 +226,54 @@ pub mod phalanx {
                 json_str,
                 "{\"address\":\"0.0.0.0:5001\",\"state\":0,\"role\":0}"
             );
+        }
+
+        #[test]
+        fn test_state_from_i32() {
+            let i: i32 = 1;
+            let state = State::from_i32(i).unwrap();
+
+            assert_eq!(state, State::NotReady);
+        }
+
+        #[test]
+        fn test_state_from_i64() {
+            let i: i64 = 2;
+            let state = State::from_i64(i).unwrap();
+
+            assert_eq!(state, State::Ready);
+        }
+
+        #[test]
+        fn test_state_from_u64() {
+            let i: u64 = 0;
+            let state = State::from_u64(i).unwrap();
+
+            assert_eq!(state, State::Disconnected);
+        }
+
+        #[test]
+        fn test_role_from_i32() {
+            let i: i32 = 1;
+            let role = Role::from_i32(i).unwrap();
+
+            assert_eq!(role, Role::Replica);
+        }
+
+        #[test]
+        fn test_role_from_i64() {
+            let i: i64 = 2;
+            let role = Role::from_i64(i).unwrap();
+
+            assert_eq!(role, Role::Primary);
+        }
+
+        #[test]
+        fn test_role_from_u64() {
+            let i: u64 = 0;
+            let role = Role::from_u64(i).unwrap();
+
+            assert_eq!(role, Role::Candidate);
         }
     }
 }

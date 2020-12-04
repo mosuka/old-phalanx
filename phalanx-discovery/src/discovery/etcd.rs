@@ -108,7 +108,7 @@ impl Discovery for Etcd {
         }
     }
 
-    async fn get(&mut self, key: &str) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    async fn get(&mut self, key: &str) -> Result<Option<Vec<u8>>, Box<dyn Error + Send + Sync>> {
         debug!("get: key={}", key);
 
         let root = self
@@ -127,7 +127,7 @@ impl Discovery for Etcd {
             .await
         {
             Ok(mut range_response) => match range_response.take_kvs().first() {
-                Some(kv) => Ok(Some(kv.value_str().to_string())),
+                Some(kv) => Ok(Some(kv.value().to_vec())),
                 None => {
                     debug!("not found: actual_key={}", &actual_key);
                     Ok(None)
@@ -167,7 +167,7 @@ impl Discovery for Etcd {
                 for kv in range_response.take_kvs().iter() {
                     let kvp = KeyValuePair {
                         key: String::from(&kv.key_str()[root.clone().len()..]), // remove root
-                        value: Some(kv.value_str().to_string()),
+                        value: kv.value().to_vec(),
                     };
                     kvs.push(kvp);
                 }
@@ -187,7 +187,7 @@ impl Discovery for Etcd {
         }
     }
 
-    async fn put(&mut self, key: &str, value: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn put(&mut self, key: &str, value: Vec<u8>) -> Result<(), Box<dyn Error + Send + Sync>> {
         debug!("put: key={}", key);
 
         let root = self
@@ -202,7 +202,7 @@ impl Discovery for Etcd {
         match self
             .client
             .kv()
-            .put(PutRequest::new(actual_key.as_str(), value))
+            .put(PutRequest::new(actual_key.as_str(), value.as_slice()))
             .await
         {
             Ok(_put_response) => Ok(()),
@@ -268,7 +268,7 @@ impl Discovery for Etcd {
         let actual_key = format!("{}{}", &root, key);
 
         tokio::spawn(async move {
-            info!("start watch etcd thread");
+            debug!("start watch etcd thread");
             watching.store(true, Ordering::Relaxed);
 
             let sender = sender.clone();
@@ -280,9 +280,9 @@ impl Discovery for Etcd {
                 match result {
                     Ok(mut watch_response) => {
                         for mut event in watch_response.take_events() {
-                            if let Some(kvs) = event.take_kvs() {
+                            if let Some(mut kvs) = event.take_kvs() {
                                 let k = String::from(&kvs.key_str()[root.clone().len()..]); // remove root
-                                let v = kvs.value_str().to_string();
+                                let v = kvs.take_value();
                                 let event = match event.event_type() {
                                     EventType::Put => Event {
                                         event_type: DEventType::Put,
@@ -313,7 +313,7 @@ impl Discovery for Etcd {
             }
 
             watching.store(false, Ordering::Relaxed);
-            info!("stop etcd watch thread");
+            debug!("stop etcd watch thread");
         });
 
         Ok(())

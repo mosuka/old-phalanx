@@ -30,7 +30,7 @@ lazy_static! {
 #[derive(Debug, Clone)]
 pub struct KeyValuePair {
     pub key: String,
-    pub value: Option<String>,
+    pub value: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ pub enum EventType {
 pub struct Event {
     pub event_type: EventType,
     pub key: String,
-    pub value: String,
+    pub value: Vec<u8>,
 }
 
 #[async_trait]
@@ -55,7 +55,7 @@ pub trait Discovery: DynClone + Send + Sync + 'static {
     async fn get(
         &mut self,
         key: &str,
-    ) -> Result<Option<String>, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<Option<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>>;
 
     async fn list(
         &mut self,
@@ -65,7 +65,7 @@ pub trait Discovery: DynClone + Send + Sync + 'static {
     async fn put(
         &mut self,
         key: &str,
-        value: &str,
+        value: Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
     async fn delete(&mut self, key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;

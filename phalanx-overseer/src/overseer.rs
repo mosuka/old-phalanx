@@ -113,9 +113,9 @@ impl Overseer {
         node_details: NodeDetails,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
-        let value = serde_json::to_string(&node_details).unwrap();
+        let value = serde_json::to_vec(&node_details).unwrap();
 
-        match self.discovery_container.discovery.put(&key, &value).await {
+        match self.discovery_container.discovery.put(&key, value).await {
             Ok(_) => Ok(()),
             Err(err) => {
                 let msg = format!("failed to register: key={}, error={:?}", &key, err);
@@ -153,7 +153,7 @@ impl Overseer {
 
         match self.discovery_container.discovery.get(&key).await {
             Ok(response) => match response {
-                Some(json) => match serde_json::from_str::<NodeDetails>(json.as_str()) {
+                Some(json) => match serde_json::from_slice::<NodeDetails>(json.as_slice()) {
                     Ok(node_details) => Ok(Some(node_details)),
                     Err(err) => {
                         let msg = format!(
@@ -251,7 +251,7 @@ impl Overseer {
         // let discovery_container = self.discovery_container.clone();
 
         tokio::spawn(async move {
-            info!("start receive thread");
+            debug!("start receive thread");
             receiving.store(true, Ordering::Relaxed);
 
             {
@@ -273,21 +273,14 @@ impl Overseer {
                             };
 
                             // parse JSON to create node metadata
-                            let node_details = match kvp.value {
-                                Some(value) => {
-                                    match serde_json::from_str::<NodeDetails>(value.as_str()) {
-                                        Ok(node_details) => node_details,
-                                        Err(err) => {
-                                            error!("failed to parse JSON: error={:?}", err);
-                                            continue;
-                                        }
+                            let node_details =
+                                match serde_json::from_slice::<NodeDetails>(kvp.value.as_slice()) {
+                                    Ok(node_details) => node_details,
+                                    Err(err) => {
+                                        error!("failed to parse JSON: error={:?}", err);
+                                        continue;
                                     }
-                                }
-                                None => {
-                                    warn!("empty data: key value pair={:?}", kvp);
-                                    continue;
-                                }
-                            };
+                                };
 
                             // add node metadata to local cache
                             debug!("{} has been set to local cache", &kvp.key);
@@ -318,15 +311,15 @@ impl Overseer {
 
                         match event.event_type {
                             EventType::Put => {
-                                let node_details =
-                                    match serde_json::from_str::<NodeDetails>(event.value.as_str())
-                                    {
-                                        Ok(node_details) => node_details,
-                                        Err(err) => {
-                                            error!("failed to parse JSON: error={:?}", err);
-                                            continue;
-                                        }
-                                    };
+                                let node_details = match serde_json::from_slice::<NodeDetails>(
+                                    event.value.as_slice(),
+                                ) {
+                                    Ok(node_details) => node_details,
+                                    Err(err) => {
+                                        error!("failed to parse JSON: error={:?}", err);
+                                        continue;
+                                    }
+                                };
 
                                 debug!("{} has been set to local cache", &event.key);
                                 let mut n = nodes.write().await;
@@ -351,20 +344,12 @@ impl Overseer {
                                         }
                                     }
 
-                                    let mut node_details = match kvp.value {
-                                        Some(value) => {
-                                            match serde_json::from_str::<NodeDetails>(
-                                                value.as_str(),
-                                            ) {
-                                                Ok(node_details) => node_details,
-                                                Err(e) => {
-                                                    error!("failed to parse JSON: error={:?}", e);
-                                                    continue;
-                                                }
-                                            }
-                                        }
-                                        None => {
-                                            error!("{}, value is empty", &kvp.key);
+                                    let mut node_details = match serde_json::from_slice::<NodeDetails>(
+                                        kvp.value.as_slice(),
+                                    ) {
+                                        Ok(node_details) => node_details,
+                                        Err(e) => {
+                                            error!("failed to parse JSON: error={:?}", e);
                                             continue;
                                         }
                                     };
@@ -373,14 +358,14 @@ impl Overseer {
                                         && node_details.role == Role::Candidate as i32
                                     {
                                         node_details.role = Role::Replica as i32;
-                                        let value = serde_json::to_string(&node_details).unwrap();
+                                        let value = serde_json::to_vec(&node_details).unwrap();
                                         match discovery_container
                                             .discovery
-                                            .put(kvp.key.as_str(), value.as_str())
+                                            .put(kvp.key.as_str(), value)
                                             .await
                                         {
                                             Ok(_) => {
-                                                info!(
+                                                debug!(
                                                     "{} has changed from a candidate to a replica",
                                                     &kvp.key
                                                 );
@@ -413,26 +398,19 @@ impl Overseer {
                                         }
                                     };
 
-                                    match &kvp.value {
-                                        Some(value) => {
-                                            match serde_json::from_str::<NodeDetails>(
-                                                value.as_str(),
-                                            ) {
-                                                Ok(node_details) => {
-                                                    if node_details.state == State::Ready as i32
-                                                        && node_details.role == Role::Primary as i32
-                                                    {
-                                                        primary_exists = true;
-                                                        break;
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    error!("failed to parse JSON: error={:?}", e);
-                                                }
+                                    match serde_json::from_slice::<NodeDetails>(
+                                        kvp.value.as_slice(),
+                                    ) {
+                                        Ok(node_details) => {
+                                            if node_details.state == State::Ready as i32
+                                                && node_details.role == Role::Primary as i32
+                                            {
+                                                primary_exists = true;
+                                                break;
                                             }
                                         }
-                                        None => {
-                                            error!("value is empty");
+                                        Err(e) => {
+                                            error!("failed to parse JSON: error={:?}", e);
                                         }
                                     };
                                 }
@@ -447,40 +425,29 @@ impl Overseer {
                                             }
                                         };
 
-                                        let mut node_details = match &kvp.value {
-                                            Some(value) => {
-                                                match serde_json::from_str::<NodeDetails>(
-                                                    value.as_str(),
-                                                ) {
-                                                    Ok(node_details) => node_details,
-                                                    Err(e) => {
-                                                        error!(
-                                                            "failed to parse JSON: error={:?}",
-                                                            e
-                                                        );
-                                                        continue;
-                                                    }
+                                        let mut node_details =
+                                            match serde_json::from_slice::<NodeDetails>(
+                                                &kvp.value.as_slice(),
+                                            ) {
+                                                Ok(node_details) => node_details,
+                                                Err(e) => {
+                                                    error!("failed to parse JSON: error={:?}", e);
+                                                    continue;
                                                 }
-                                            }
-                                            None => {
-                                                error!("value is empty");
-                                                continue;
-                                            }
-                                        };
+                                            };
 
                                         if node_details.state == State::Ready as i32
                                             && node_details.role == Role::Replica as i32
                                         {
                                             node_details.role = Role::Primary as i32;
-                                            let value =
-                                                serde_json::to_string(&node_details).unwrap();
+                                            let value = serde_json::to_vec(&node_details).unwrap();
                                             match discovery_container
                                                 .discovery
-                                                .put(&kvp.key, value.as_str())
+                                                .put(&kvp.key, value)
                                                 .await
                                             {
                                                 Ok(_) => {
-                                                    info!(
+                                                    debug!(
                                                         "{} has changed from a replica to a primary",
                                                         &kvp.key
                                                     );
@@ -515,7 +482,7 @@ impl Overseer {
             }
 
             receiving.store(false, Ordering::Relaxed);
-            info!("stop receive thread");
+            debug!("stop receive thread");
         });
 
         Ok(())
@@ -571,7 +538,7 @@ impl Overseer {
         // let discovery_container = self.discovery_container.clone();
 
         tokio::spawn(async move {
-            info!("start probe thread");
+            debug!("start probe thread");
             probing.store(true, Ordering::Relaxed);
 
             loop {
@@ -606,11 +573,10 @@ impl Overseer {
                                             state: State::Disconnected as i32,
                                             role: Role::Candidate as i32,
                                         };
-                                        let value =
-                                            serde_json::to_string(&new_node_details).unwrap();
+                                        let value = serde_json::to_vec(&new_node_details).unwrap();
                                         match discovery_container
                                             .discovery
-                                            .put(key.as_str(), value.as_str())
+                                            .put(key.as_str(), value)
                                             .await
                                         {
                                             Ok(_) => (),
@@ -638,10 +604,10 @@ impl Overseer {
                                         state: State::NotReady as i32,
                                         role: Role::Candidate as i32,
                                     };
-                                    let value = serde_json::to_string(&new_node_details).unwrap();
+                                    let value = serde_json::to_vec(&new_node_details).unwrap();
                                     match discovery_container
                                         .discovery
-                                        .put(key.as_str(), value.as_str())
+                                        .put(key.as_str(), value)
                                         .await
                                     {
                                         Ok(_) => (),
@@ -661,16 +627,16 @@ impl Overseer {
                         match resp.into_inner().state {
                             state if state == State::Ready as i32 => {
                                 if node_details.state != State::Ready as i32 {
-                                    info!("{} is ready", key);
+                                    debug!("{} is ready", key);
                                     let new_node_details = NodeDetails {
                                         address: node_details.address.clone(),
                                         state: State::Ready as i32,
                                         role: node_details.role,
                                     };
-                                    let value = serde_json::to_string(&new_node_details).unwrap();
+                                    let value = serde_json::to_vec(&new_node_details).unwrap();
                                     match discovery_container
                                         .discovery
-                                        .put(key.as_str(), value.as_str())
+                                        .put(key.as_str(), value)
                                         .await
                                     {
                                         Ok(_) => (),
@@ -691,10 +657,10 @@ impl Overseer {
                                         state: State::NotReady as i32,
                                         role: Role::Candidate as i32,
                                     };
-                                    let value = serde_json::to_string(&new_node_details).unwrap();
+                                    let value = serde_json::to_vec(&new_node_details).unwrap();
                                     match discovery_container
                                         .discovery
-                                        .put(key.as_str(), value.as_str())
+                                        .put(key.as_str(), value)
                                         .await
                                     {
                                         Ok(_) => (),
@@ -715,7 +681,7 @@ impl Overseer {
             }
 
             probing.store(false, Ordering::Relaxed);
-            info!("stop probe thread");
+            debug!("stop probe thread");
         });
 
         Ok(())

@@ -159,7 +159,7 @@ impl Watcher {
         let storage_container = self.storage_container.clone();
 
         tokio::spawn(async move {
-            info!("start cluster watch thread");
+            debug!("start cluster watch thread");
             receiving.store(true, Ordering::Relaxed);
 
             let storage_container = storage_container.clone();
@@ -183,8 +183,9 @@ impl Watcher {
                             match event.event_type {
                                 EventType::Put => {
                                     debug!("{} has been updated", &event.key);
-                                    match serde_json::from_str::<NodeDetails>(event.value.as_str())
-                                    {
+                                    match serde_json::from_slice::<NodeDetails>(
+                                        event.value.as_slice(),
+                                    ) {
                                         Ok(nd) => {
                                             let mut m = node_details.write().await;
                                             m.address = nd.address;
@@ -312,7 +313,7 @@ impl Watcher {
                                             Some(content) => {
                                                 let file_path =
                                                     Path::new(&index_dir).join(object_name);
-                                                info!(
+                                                debug!(
                                                     "pull {} to {}",
                                                     &object_key,
                                                     &file_path.to_str().unwrap()
@@ -370,7 +371,7 @@ impl Watcher {
                                         Path::new(&index_dir).join(&file_name).to_str().unwrap(),
                                     );
                                     match fs::remove_file(&file_path) {
-                                        Ok(()) => info!("delete: {}", &file_path),
+                                        Ok(()) => debug!("delete: {}", &file_path),
                                         Err(err) => {
                                             error!("failed to delete file: error={:?}", err);
                                             continue;
@@ -396,7 +397,7 @@ impl Watcher {
             }
 
             receiving.store(false, Ordering::Relaxed);
-            info!("stop cluster watch thread");
+            debug!("stop cluster watch thread");
         });
 
         let config_json = self
@@ -436,7 +437,7 @@ impl Watcher {
         let watch_file = Path::new(self.index_dir.clone().as_str()).join("meta.json");
         let watch_dir = self.index_dir.clone();
         tokio::spawn(async move {
-            info!("start local index watch thread");
+            debug!("start local index watch thread");
 
             let (sender, receiver) = unbounded();
 
@@ -551,7 +552,7 @@ impl Watcher {
                                     "{}/{}/{}",
                                     &my_index_name2, &my_shard_name2, &file_name
                                 );
-                                info!("put {} to {}", &file_path, &object_key);
+                                debug!("put {} to {}", &file_path, &object_key);
                                 match storage_container2
                                     .storage
                                     .set(object_key.as_str(), content.as_slice())
@@ -622,8 +623,8 @@ impl Watcher {
                                     continue;
                                 }
                             };
-                            let mut value = String::new();
-                            match file.read_to_string(&mut value).await {
+                            let mut value = Vec::new();
+                            match file.read_to_end(&mut value).await {
                                 Ok(_) => (),
                                 Err(e) => {
                                     error!("failed to read file: error={:?}", e);
@@ -631,13 +632,9 @@ impl Watcher {
                                 }
                             };
 
-                            match discovery_container
-                                .discovery
-                                .put(key.as_str(), value.as_str())
-                                .await
-                            {
+                            match discovery_container.discovery.put(key.as_str(), value).await {
                                 Ok(_) => {
-                                    info!("put index metadata: key={}", &key);
+                                    debug!("put index metadata: key={}", &key);
                                 }
                                 Err(e) => {
                                     error!("failed to put _index_meta.json: error={:?}", e);
@@ -661,7 +658,7 @@ impl Watcher {
                 }
             }
 
-            info!("stop local index watch thread");
+            debug!("stop local index watch thread");
         });
 
         Ok(())
