@@ -9,6 +9,7 @@ build = "build.rs"
 tonic-build = "0.3"
 
 [dependencies]
+num = "0.3"
 prost = "0.6"
 serde = "1.0"
 tonic = "0.3"

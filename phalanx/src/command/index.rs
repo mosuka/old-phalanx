@@ -410,7 +410,7 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<(), Error> {
         state: State::Disconnected as i32,
         role: Role::Candidate as i32,
     };
-    let node_details_json = match serde_json::to_string(&node_details) {
+    let node_details_json = match serde_json::to_vec(&node_details) {
         Ok(node_details_json) => node_details_json,
         Err(e) => {
             return Err(Error::from(ErrorKind::Cli(format!(
@@ -422,7 +422,7 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<(), Error> {
     };
     match discovery_container
         .discovery
-        .put(key.as_str(), node_details_json.as_str())
+        .put(key.as_str(), node_details_json)
         .await
     {
         Ok(_) => (),
