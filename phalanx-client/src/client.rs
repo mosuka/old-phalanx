@@ -6,16 +6,18 @@ use crossbeam::channel::{unbounded, TryRecvError};
 use futures::future::try_join_all;
 use lazy_static::lazy_static;
 use log::*;
+use rand::Rng;
 use regex::Regex;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use tonic::transport::Channel;
 
 use phalanx_common::error::{Error, ErrorKind};
 use phalanx_discovery::discovery::nop::TYPE as NOP_TYPE;
-use phalanx_discovery::discovery::{DiscoveryContainer, EventType, KeyValuePair};
+use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
-use phalanx_proto::phalanx::{NodeDetails, ReadinessReq, Role, State};
-use tokio::task::JoinHandle;
+use phalanx_proto::phalanx::{GetReq, NodeDetails, ReadinessReq, Role, State};
+use tonic::Code;
 
 const KEY_PATTERN: &'static str = r"^/([^/]+)/([^/]+)/([^/]+)\.json";
 
@@ -67,7 +69,7 @@ pub struct Client {
     discovery_container: DiscoveryContainer,
     watching: Arc<AtomicBool>,
     unwatch: Arc<AtomicBool>,
-    cache: Arc<RwLock<HashMap<String, Vec<u8>>>>,
+    node_metadata: Arc<RwLock<HashMap<String, NodeDetails>>>,
     clients: Arc<RwLock<HashMap<String, IndexServiceClient<Channel>>>>,
 }
 
@@ -77,7 +79,7 @@ impl Client {
             discovery_container,
             watching: Arc::new(AtomicBool::new(false)),
             unwatch: Arc::new(AtomicBool::new(false)),
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            node_metadata: Arc::new(RwLock::new(HashMap::new())),
             clients: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -95,7 +97,7 @@ impl Client {
         }
 
         // initialize
-        self.cache = Arc::new(RwLock::new(HashMap::new()));
+        self.node_metadata = Arc::new(RwLock::new(HashMap::new()));
         self.clients = Arc::new(RwLock::new(HashMap::new()));
         let (sender, receiver) = unbounded();
 
@@ -120,49 +122,41 @@ impl Client {
                         Ok(names) => names,
                         Err(e) => {
                             // ignore keys that do not match the pattern
-                            debug!("{}", e.to_string());
+                            error!("{}", e.to_string());
                             continue;
                         }
                     };
 
-                    // update clients
-                    if names.2 != "_index_meta" {
-                        // make metadata
-                        let node_details =
-                            match serde_json::from_slice::<NodeDetails>(kvp.value.as_slice()) {
-                                Ok(node_details) => node_details,
-                                Err(err) => {
-                                    error!("failed to parse JSON: error={:?}", err);
-                                    continue;
-                                }
-                            };
-
-                        // add client
-                        match IndexServiceClient::connect(format!(
-                            "http://{}",
-                            node_details.address.clone()
-                        ))
-                        .await
-                        {
-                            Ok(client) => {
-                                debug!("add {} in the client pool", &kvp.key);
-                                let mut clients = self.clients.write().await;
-                                clients.insert(kvp.key.clone(), client);
-                            }
-                            Err(e) => {
-                                error!(
-                                    "failed to connect to {}: {}",
-                                    &node_details.address,
-                                    e.to_string()
-                                );
-                            }
-                        };
+                    if names.2 == "_index_meta" {
+                        // skip index metadata
+                        continue;
                     }
 
-                    // update cache
-                    debug!("add {} in the local cache", &kvp.key);
-                    let mut cache = self.cache.write().await;
-                    cache.insert(kvp.key.clone(), kvp.value.clone());
+                    // make metadata
+                    let nd = match serde_json::from_slice::<NodeDetails>(kvp.value.as_slice()) {
+                        Ok(node_details) => node_details,
+                        Err(err) => {
+                            error!("failed to parse JSON: error={:?}", err);
+                            continue;
+                        }
+                    };
+
+                    // add client
+                    let addr = format!("http://{}", nd.address.clone());
+                    match IndexServiceClient::connect(addr).await {
+                        Ok(client) => {
+                            debug!("add {} in the client pool", &kvp.key);
+                            let mut c = self.clients.write().await;
+                            c.insert(kvp.key.clone(), client);
+                        }
+                        Err(e) => {
+                            error!("failed to connect to {}: {}", &nd.address, e.to_string());
+                        }
+                    };
+
+                    // add metadata
+                    let mut nm = self.node_metadata.write().await;
+                    nm.insert(kvp.key.clone(), nd);
                 }
             }
             Err(err) => {
@@ -170,7 +164,8 @@ impl Client {
             }
         };
 
-        let cache = Arc::clone(&self.cache);
+        // let cache = Arc::clone(&self.cache);
+        let node_metadata = Arc::clone(&self.node_metadata);
         let clients = Arc::clone(&self.clients);
 
         tokio::spawn(async move {
@@ -190,71 +185,64 @@ impl Client {
                             }
                         };
 
-                        // update cache
+                        if names.2 == "_index_meta" {
+                            // skip index metadata
+                            continue;
+                        }
+
+                        // make metadata
+                        let nd = match serde_json::from_slice::<NodeDetails>(event.value.as_slice())
+                        {
+                            Ok(node_details) => node_details,
+                            Err(err) => {
+                                error!("failed to parse JSON: error={:?}", err);
+                                continue;
+                            }
+                        };
+
                         match event.event_type {
                             EventType::Put => {
-                                debug!("update {} in the local cache", &event.key);
-                                let mut cache = cache.write().await;
-                                cache.insert(event.key.clone(), event.value.clone());
+                                // add client
+                                let addr = format!("http://{}", nd.address.clone());
+                                match IndexServiceClient::connect(addr).await {
+                                    Ok(client) => {
+                                        debug!("add {} in the client pool", &event.key);
+                                        let mut c = clients.write().await;
+                                        c.insert(event.key.clone(), client);
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "failed to connect to {}: {}",
+                                            &nd.address,
+                                            e.to_string()
+                                        );
+                                        let mut c = clients.write().await;
+                                        if c.contains_key(&event.key) {
+                                            c.remove(&event.key);
+                                        }
+                                    }
+                                };
+
+                                // add node metadata
+                                let mut nm = node_metadata.write().await;
+                                nm.insert(event.key.clone(), nd);
                             }
                             EventType::Delete => {
-                                debug!("delete {} in the local cash", &event.key);
-                                let mut cache = cache.write().await;
-                                if cache.contains_key(&event.key) {
-                                    cache.remove(&event.key);
+                                // delete client
+                                debug!("delete client: key={}", &event.key);
+                                let mut c = clients.write().await;
+                                if c.contains_key(&event.key) {
+                                    c.remove(&event.key);
+                                }
+
+                                // delete node metadata
+                                debug!("delete node metadata: key={}", &event.key);
+                                let mut nm = node_metadata.write().await;
+                                if nm.contains_key(&event.key) {
+                                    nm.remove(&event.key);
                                 }
                             }
-                        }
-
-                        // update clients
-                        if names.2 != "_index_meta" {
-                            match event.event_type {
-                                EventType::Put => {
-                                    // make metadata
-                                    let node_details = match serde_json::from_slice::<NodeDetails>(
-                                        event.value.as_slice(),
-                                    ) {
-                                        Ok(node_details) => node_details,
-                                        Err(err) => {
-                                            error!("failed to parse JSON: error={:?}", err);
-                                            continue;
-                                        }
-                                    };
-
-                                    // add client
-                                    match IndexServiceClient::connect(format!(
-                                        "http://{}",
-                                        node_details.address.clone()
-                                    ))
-                                    .await
-                                    {
-                                        Ok(client) => {
-                                            debug!("add {} in the client pool", &event.key);
-                                            let mut clients = clients.write().await;
-                                            clients.insert(event.key.clone(), client);
-                                        }
-                                        Err(e) => {
-                                            error!(
-                                                "failed to connect to {}: {}",
-                                                &node_details.address,
-                                                e.to_string()
-                                            );
-                                            let mut clients = clients.write().await;
-                                            if clients.contains_key(&event.key) {
-                                                clients.remove(&event.key);
-                                            }
-                                        }
-                                    };
-                                }
-                                EventType::Delete => {
-                                    debug!("delete client: key={}", &event.key);
-                                    let mut clients = clients.write().await;
-                                    if clients.contains_key(&event.key) {
-                                        clients.remove(event.key.as_str());
-                                    }
-                                }
-                            };
-                        }
+                        };
                     }
                     Err(TryRecvError::Disconnected) => {
                         debug!("channel disconnected");
@@ -302,65 +290,6 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_cache(&mut self, key: &str) -> Result<Vec<u8>, Error> {
-        let n = self.cache.read().await;
-        match n.get(key) {
-            Some(value) => Ok(value.clone()),
-            None => Err(Error::from(ErrorKind::NotFound(format!(
-                "{} does not found",
-                key
-            )))),
-        }
-    }
-
-    pub async fn list_cache(&mut self, prefix: &str) -> Result<Vec<KeyValuePair>, Error> {
-        let n = self.cache.read().await;
-
-        let mut kvps = Vec::new();
-        for (key, value) in n.iter() {
-            if key.starts_with(prefix) {
-                let kvp = KeyValuePair {
-                    key: key.clone(),
-                    value: value.clone(),
-                };
-                kvps.push(kvp);
-            }
-        }
-
-        Ok(kvps)
-    }
-
-    pub async fn get_primary_node(
-        &mut self,
-        index_name: &str,
-        shard_name: &str,
-    ) -> Result<NodeDetails, Error> {
-        let prefix = format!("/{}/{}/", index_name, shard_name);
-        let n = self.cache.read().await;
-
-        for (key, value) in n.iter() {
-            if key.starts_with(prefix.as_str()) {
-                let node_details = match serde_json::from_slice::<NodeDetails>(value.as_slice()) {
-                    Ok(node_details) => node_details,
-                    Err(e) => {
-                        error!("{}: {}", key, e.to_string());
-                        continue;
-                    }
-                };
-                if node_details.state == State::Ready as i32
-                    && node_details.role == Role::Primary as i32
-                {
-                    return Ok(node_details);
-                }
-            }
-        }
-
-        Err(Error::from(ErrorKind::NotFound(format!(
-            "primary node does not exist in {}",
-            prefix
-        ))))
-    }
-
     pub async fn readiness(
         &mut self,
         index_name: &str,
@@ -385,7 +314,7 @@ impl Client {
             };
 
             let mut keys = Vec::new();
-            for key in self.cache.read().await.keys() {
+            for key in self.node_metadata.read().await.keys() {
                 if key.starts_with(prefix.as_str()) {
                     keys.push(key.to_string());
                 }
@@ -443,5 +372,150 @@ impl Client {
         }
 
         Ok(state_hashmap)
+    }
+
+    pub async fn get(
+        &mut self,
+        id: &str,
+        index_name: &str,
+        shard_name: Option<&str>,
+        node_name: Option<&str>,
+    ) -> Result<Vec<u8>, Error> {
+        let mut prefix = format!("/{}/", index_name);
+        match shard_name {
+            Some(shard_name) => {
+                prefix.push_str(shard_name);
+                prefix.push_str("/");
+                match node_name {
+                    Some(node_name) => {
+                        prefix.push_str(node_name);
+                        prefix.push_str(".json");
+                    }
+                    None => (),
+                };
+            }
+            None => (),
+        };
+
+        let node_metadata = self.node_metadata.read().await;
+
+        // select the node from each shard
+        let mut shards: HashMap<String, Vec<String>> = HashMap::new();
+        for (key, _metadata) in node_metadata.iter() {
+            if key.starts_with(&prefix) {
+                let names = match parse_key(&key) {
+                    Ok(names) => names,
+                    Err(e) => {
+                        // ignore keys that do not match the pattern
+                        debug!("parse error: error={:?}", e);
+                        continue;
+                    }
+                };
+
+                let shard_key = format!("/{}/{}/", names.0, names.1);
+                if shards.contains_key(&shard_key) {
+                    let mut node_keys: Vec<String> = shards.get(&shard_key).unwrap().clone();
+                    node_keys.push(key.clone());
+                    shards.insert(shard_key, node_keys);
+                } else {
+                    let mut node_keys: Vec<String> = Vec::new();
+                    node_keys.push(key.clone());
+                    shards.insert(shard_key, node_keys);
+                }
+            }
+        }
+        debug!("{:?}", &shards);
+
+        let clients = self.clients.read().await;
+        let handles: Vec<JoinHandle<Result<Vec<u8>, Error>>> = shards
+            .iter()
+            .map(|(shard_key, node_keys)| {
+                let key = shard_key.clone();
+
+                let mut primary = String::new();
+                let mut replicas: Vec<String> = Vec::new();
+
+                for node_key in node_keys {
+                    let m = node_metadata.get(node_key).unwrap();
+                    let state = State::from_i32(m.state).unwrap();
+                    let role = Role::from_i32(m.role).unwrap();
+                    debug!("{:?}", m);
+                    if state == State::Ready {
+                        match role {
+                            Role::Primary => primary = node_key.clone(),
+                            Role::Replica => replicas.push(node_key.clone()),
+                            Role::Candidate => debug!("{} is {:?}", node_key, &role),
+                        }
+                    }
+                }
+                debug!("primary: {}", &primary);
+                debug!("replica: {:?}", &replicas);
+
+                let target_key;
+                if replicas.len() > 0 {
+                    let i = rand::thread_rng().gen_range(0, replicas.len());
+                    target_key = replicas.get(i).unwrap();
+                } else {
+                    target_key = &primary;
+                }
+                debug!("selected node: {}", target_key);
+
+                let id = id.clone().to_string();
+
+                match clients.get(target_key) {
+                    Some(client) => {
+                        let client = client.clone();
+                        tokio::spawn(async move {
+                            let mut client: IndexServiceClient<Channel> = client.into();
+                            let req = tonic::Request::new(GetReq { id });
+                            match client.get(req).await {
+                                Ok(resp) => {
+                                    let doc = resp.into_inner().doc;
+                                    Ok(doc)
+                                }
+                                Err(e) => {
+                                    match e.code() {
+                                        Code::NotFound => Ok(Vec::new()),
+                                        _ => Err(Error::from(ErrorKind::Other(format!(
+                                            "{}",
+                                            e.message()
+                                        )))),
+                                    }
+                                }
+                            }
+                        })
+                    }
+                    None => tokio::spawn(async move {
+                        Err(Error::from(ErrorKind::Other(format!(
+                            "client for {} does not exist", key
+                        ))))
+                    }),
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let results = match try_join_all(handles).await {
+            Ok(results) => results,
+            Err(e) => {
+                return Err(Error::from(ErrorKind::Other(format!("{}", e.to_string()))));
+            }
+        };
+
+        let docs = match results.into_iter().collect::<Result<Vec<Vec<u8>>, Error>>() {
+            Ok(results) => results,
+            Err(e) => {
+                return Err(Error::from(ErrorKind::Other(format!("{}", e.to_string()))));
+            }
+        };
+
+        let mut ret = Vec::new();
+        for ((_shard_key, _node_keys), doc) in shards.iter().zip(docs) {
+            if doc.len() > 0 {
+                ret = doc;
+                break;
+            }
+        }
+
+        Ok(ret)
     }
 }

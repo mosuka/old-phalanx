@@ -2023,6 +2023,7 @@ dependencies = [
  "phalanx-common",
  "phalanx-discovery",
  "phalanx-proto",
+ "rand 0.7.3",
  "regex",
  "serde_json",
  "tokio",
