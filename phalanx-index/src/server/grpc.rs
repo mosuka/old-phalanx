@@ -633,7 +633,7 @@ impl ProtoIndexService for IndexService {
                 None => {
                     timer.observe_duration();
 
-                    Err(Status::new(Code::InvalidArgument, "document is None"))
+                    Err(Status::new(Code::NotFound, "document is None"))
                 }
             },
             Err(e) => {
