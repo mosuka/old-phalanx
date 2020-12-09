@@ -473,21 +473,20 @@ impl Client {
                                     let doc = resp.into_inner().doc;
                                     Ok(doc)
                                 }
-                                Err(e) => {
-                                    match e.code() {
-                                        Code::NotFound => Ok(Vec::new()),
-                                        _ => Err(Error::from(ErrorKind::Other(format!(
-                                            "{}",
-                                            e.message()
-                                        )))),
-                                    }
-                                }
+                                Err(e) => match e.code() {
+                                    Code::NotFound => Ok(Vec::new()),
+                                    _ => Err(Error::from(ErrorKind::Other(format!(
+                                        "{}",
+                                        e.message()
+                                    )))),
+                                },
                             }
                         })
                     }
                     None => tokio::spawn(async move {
                         Err(Error::from(ErrorKind::Other(format!(
-                            "client for {} does not exist", key
+                            "client for {} does not exist",
+                            key
                         ))))
                     }),
                 }
