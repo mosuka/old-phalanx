@@ -3,6 +3,7 @@ use std::net::ToSocketAddrs;
 use std::thread::sleep;
 use std::time::Duration;
 
+use anyhow::{anyhow, Result};
 use clap::ArgMatches;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::Server as HyperServer;
@@ -11,7 +12,6 @@ use tokio::signal;
 use tonic::transport::Server as TonicServer;
 use tonic::Request;
 
-use phalanx_common::error::{Error, ErrorKind};
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{
     Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE,
@@ -25,7 +25,7 @@ use phalanx_proto::phalanx::overseer_service_client::OverseerServiceClient;
 use phalanx_proto::phalanx::overseer_service_server::OverseerServiceServer;
 use phalanx_proto::phalanx::{UnwatchReq, WatchReq};
 
-pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
+pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<()> {
     set_logger();
 
     let discovery_container = match matches.value_of("discovery_type") {
@@ -33,9 +33,7 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
             let discovery_root = match matches.value_of("discovery_root") {
                 Some(discovery_root) => discovery_root,
                 None => {
-                    return Err(Error::from(ErrorKind::Cli(
-                        "missing --discovery-root".to_string(),
-                    )))
+                    return Err(anyhow!("missing --discovery-root"));
                 }
             };
 
@@ -46,9 +44,7 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
                             etcd_endpoints.map(|addr| addr.to_string()).collect()
                         }
                         None => {
-                            return Err(Error::from(ErrorKind::Cli(
-                                "missing --etcd-endpoints".to_string(),
-                            )))
+                            return Err(anyhow!("missing --etcd-endpoints"));
                         }
                     };
 
@@ -68,10 +64,7 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
                     discovery: Box::new(NopDiscovery::new()),
                 },
                 _ => {
-                    return Err(Error::from(ErrorKind::Cli(format!(
-                        "unsupported discovery type: {}",
-                        discovery_type
-                    ))));
+                    return Err(anyhow!("unsupported discovery type: {}", discovery_type));
                 }
             }
         }
@@ -84,17 +77,15 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
         Some(probe_interval) => match probe_interval.parse::<u64>() {
             Ok(probe_interval) => probe_interval,
             Err(e) => {
-                return Err(Error::from(ErrorKind::Cli(format!(
+                return Err(anyhow!(
                     "failed to parse gRPC port {}: {}",
                     probe_interval,
                     e.to_string()
-                ))));
+                ));
             }
         },
         None => {
-            return Err(Error::from(ErrorKind::Cli(
-                "missing --probe-interval".to_string(),
-            )))
+            return Err(anyhow!("missing --probe-interval"));
         }
     };
 
@@ -102,24 +93,22 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
 
     let address = match matches.value_of("address") {
         Some(host) => host,
-        None => return Err(Error::from(ErrorKind::Cli("missing --address".to_string()))),
+        None => return Err(anyhow!("missing --address")),
     };
 
     let grpc_port = match matches.value_of("grpc_port") {
         Some(grpc_port) => match grpc_port.parse::<u16>() {
             Ok(grpc_port) => grpc_port,
             Err(e) => {
-                return Err(Error::from(ErrorKind::Cli(format!(
+                return Err(anyhow!(
                     "failed to parse gRPC port {}: {}",
                     grpc_port,
                     e.to_string()
-                ))));
+                ));
             }
         },
         None => {
-            return Err(Error::from(ErrorKind::Cli(
-                "missing --grpc-port".to_string(),
-            )))
+            return Err(anyhow!("missing --grpc-port"));
         }
     };
 
@@ -127,17 +116,15 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
         Some(http_port) => match http_port.parse::<u16>() {
             Ok(http_port) => http_port,
             Err(e) => {
-                return Err(Error::from(ErrorKind::Cli(format!(
+                return Err(anyhow!(
                     "failed to parse HTTP port {}: {}",
                     http_port,
                     e.to_string()
-                ))));
+                ));
             }
         },
         None => {
-            return Err(Error::from(ErrorKind::Cli(
-                "missing --http-port".to_string(),
-            )))
+            return Err(anyhow!("missing --http-port"));
         }
     };
 
@@ -147,18 +134,15 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
         Ok(mut grpc_sock_addrs) => match grpc_sock_addrs.next() {
             Some(grpc_sock_addr) => grpc_sock_addr,
             None => {
-                return Err(Error::from(ErrorKind::Cli(format!(
-                    "failed to resolve address {:?}",
-                    grpc_sock_addrs,
-                ))));
+                return Err(anyhow!("failed to resolve address {:?}", grpc_sock_addrs));
             }
         },
         Err(e) => {
-            return Err(Error::from(ErrorKind::Cli(format!(
+            return Err(anyhow!(
                 "failed to convert socket address {}: {}",
                 grpc_address,
                 e.to_string()
-            ))));
+            ));
         }
     };
 
@@ -168,18 +152,15 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
         Ok(mut http_sock_addrs) => match http_sock_addrs.next() {
             Some(http_sock_addr) => http_sock_addr,
             None => {
-                return Err(Error::from(ErrorKind::Cli(format!(
-                    "failed to resolve address {:?}",
-                    http_sock_addrs,
-                ))));
+                return Err(anyhow!("failed to resolve address {:?}", http_sock_addrs));
             }
         },
         Err(e) => {
-            return Err(Error::from(ErrorKind::Cli(format!(
+            return Err(anyhow!(
                 "failed to convert socket address {}: {}",
                 http_address,
                 e.to_string()
-            ))));
+            ));
         }
     };
 
@@ -209,11 +190,11 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
     {
         Ok(grpc_client) => grpc_client,
         Err(e) => {
-            return Err(Error::from(ErrorKind::Cli(format!(
+            return Err(anyhow!(
                 "failed to connect gRPC server {}: {}",
                 grpc_address.to_string(),
                 e.to_string()
-            ))));
+            ));
         }
     };
 
@@ -224,11 +205,11 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
     match grpc_client.watch(watch_req).await {
         Ok(_) => (),
         Err(e) => {
-            return Err(Error::from(ErrorKind::Cli(format!(
+            return Err(anyhow!(
                 "failed to watch cluster {}: {}",
                 grpc_address.to_string(),
                 e.to_string()
-            ))));
+            ));
         }
     };
 
@@ -240,11 +221,11 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<(), Error> {
     match grpc_client.unwatch(unwatch_req).await {
         Ok(_) => (),
         Err(e) => {
-            return Err(Error::from(ErrorKind::Cli(format!(
+            return Err(anyhow!(
                 "failed to unwatch cluster {}: {}",
                 grpc_address.to_string(),
                 e.to_string()
-            ))));
+            ));
         }
     };
 

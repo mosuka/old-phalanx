@@ -1,15 +1,16 @@
 use std::thread::sleep;
 
+use anyhow::{Context, Result};
 use tokio::time::Duration;
 
 use phalanx_client::client::Client;
-use phalanx_common::error::Error;
+// use phalanx_common::error::Error;
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd as EtcdDiscovery, EtcdConfig};
 use phalanx_discovery::discovery::DiscoveryContainer;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<()> {
     set_logger();
 
     let discovery_container = DiscoveryContainer {
@@ -25,12 +26,10 @@ async fn main() -> Result<(), Error> {
 
     let mut client = Client::new(discovery_container).await;
 
-    match client.watch("/").await {
-        Ok(_) => (),
-        Err(e) => {
-            println!("{}", e.to_string());
-        }
-    };
+    client
+        .watch("/")
+        .await
+        .with_context(|| "failed to watch key that starts with \"/\"")?;
 
     sleep(Duration::from_secs(1));
 

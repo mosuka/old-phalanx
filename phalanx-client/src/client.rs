@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use anyhow::{anyhow, Context, Error, Result};
 use crossbeam::channel::{unbounded, TryRecvError};
 use futures::future::try_join_all;
 use lazy_static::lazy_static;
@@ -12,7 +13,6 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tonic::transport::Channel;
 
-use phalanx_common::error::{Error, ErrorKind};
 use phalanx_discovery::discovery::nop::TYPE as NOP_TYPE;
 use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
@@ -25,42 +25,33 @@ lazy_static! {
     static ref KEY_REGEX: Regex = Regex::new(KEY_PATTERN).unwrap();
 }
 
-fn parse_key(key: &str) -> Result<(String, String, String), Error> {
+fn parse_key(key: &str) -> Result<(String, String, String)> {
     match KEY_REGEX.captures(key) {
         Some(cap) => {
             let value1 = match cap.get(1) {
                 Some(m) => m.as_str(),
                 None => {
-                    return Err(Error::from(ErrorKind::NotFound(String::from(
-                        "value does not match",
-                    ))));
+                    return Err(anyhow!("value does not match"));
                 }
             };
 
             let value2 = match cap.get(2) {
                 Some(m) => m.as_str(),
                 None => {
-                    return Err(Error::from(ErrorKind::NotFound(String::from(
-                        "value does not match",
-                    ))));
+                    return Err(anyhow!("value does not match"));
                 }
             };
 
             let value3 = match cap.get(3) {
                 Some(m) => m.as_str(),
                 None => {
-                    return Err(Error::from(ErrorKind::NotFound(String::from(
-                        "value does not match",
-                    ))));
+                    return Err(anyhow!("value does not match"));
                 }
             };
 
             Ok((value1.to_string(), value2.to_string(), value3.to_string()))
         }
-        None => Err(Error::from(ErrorKind::ParseError(format!(
-            "{:?} does not match {:?}",
-            key, KEY_PATTERN
-        )))),
+        None => Err(anyhow!("{:?} does not match {:?}", key, KEY_PATTERN)),
     }
 }
 
@@ -84,7 +75,7 @@ impl Client {
         }
     }
 
-    pub async fn watch(&mut self, key: &str) -> Result<(), Error> {
+    pub async fn watch(&mut self, key: &str) -> Result<()> {
         if self.discovery_container.discovery.get_type() == NOP_TYPE {
             debug!("the NOP discovery does not do anything");
             return Ok(());
@@ -92,8 +83,8 @@ impl Client {
 
         if self.watching.load(Ordering::Relaxed) {
             let msg = "receiver is already running";
-            warn!("{}", msg);
-            return Err(Error::from(ErrorKind::Other(msg.to_string())));
+            warn!("{}", &msg);
+            return Err(anyhow!(msg));
         }
 
         // initialize
@@ -101,11 +92,10 @@ impl Client {
         self.clients = Arc::new(RwLock::new(HashMap::new()));
         let (sender, receiver) = unbounded();
 
-        // specifies the key of the shard to which it joined
         match self.discovery_container.discovery.watch(sender, key).await {
             Ok(_) => (),
             Err(e) => {
-                return Err(Error::from(ErrorKind::Other(e.to_string())));
+                return Err(anyhow!(e.to_string()));
             }
         }
 
@@ -275,13 +265,13 @@ impl Client {
         if !self.watching.load(Ordering::Relaxed) {
             let msg = "watcher is not running";
             warn!("{}", msg);
-            return Err(Error::from(ErrorKind::Other(msg.to_string())));
+            return Err(anyhow!(msg));
         }
 
         match self.discovery_container.discovery.unwatch().await {
             Ok(_) => (),
             Err(e) => {
-                return Err(Error::from(ErrorKind::Other(e.to_string())));
+                return Err(anyhow!(e.to_string()));
             }
         }
 
@@ -295,24 +285,24 @@ impl Client {
         index_name: &str,
         shard_name: Option<&str>,
         node_name: Option<&str>,
-    ) -> Result<HashMap<String, State>, Error> {
-        let keys: Vec<String> = {
-            let mut prefix = format!("/{}/", index_name);
-            match shard_name {
-                Some(shard_name) => {
-                    prefix.push_str(shard_name);
-                    prefix.push_str("/");
-                    match node_name {
-                        Some(node_name) => {
-                            prefix.push_str(node_name);
-                            prefix.push_str(".json");
-                        }
-                        None => (),
-                    };
-                }
-                None => (),
-            };
+    ) -> Result<HashMap<String, State>> {
+        let mut prefix = format!("/{}/", index_name);
+        match shard_name {
+            Some(shard_name) => {
+                prefix.push_str(shard_name);
+                prefix.push_str("/");
+                match node_name {
+                    Some(node_name) => {
+                        prefix.push_str(node_name);
+                        prefix.push_str(".json");
+                    }
+                    None => (),
+                };
+            }
+            None => (),
+        };
 
+        let keys: Vec<String> = {
             let mut keys = Vec::new();
             for key in self.node_metadata.read().await.keys() {
                 if key.starts_with(prefix.as_str()) {
@@ -380,7 +370,7 @@ impl Client {
         index_name: &str,
         shard_name: Option<&str>,
         node_name: Option<&str>,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<Vec<u8>> {
         let mut prefix = format!("/{}/", index_name);
         match shard_name {
             Some(shard_name) => {
@@ -427,85 +417,75 @@ impl Client {
         debug!("{:?}", &shards);
 
         let clients = self.clients.read().await;
-        let handles: Vec<JoinHandle<Result<Vec<u8>, Error>>> = shards
-            .iter()
-            .map(|(shard_key, node_keys)| {
-                let key = shard_key.clone();
+        let handles: Vec<JoinHandle<Result<Vec<u8>, Error>>> =
+            shards
+                .iter()
+                .map(|(shard_key, node_keys)| {
+                    let key = shard_key.clone();
 
-                let mut primary = String::new();
-                let mut replicas: Vec<String> = Vec::new();
+                    let mut primary = String::new();
+                    let mut replicas: Vec<String> = Vec::new();
 
-                for node_key in node_keys {
-                    let m = node_metadata.get(node_key).unwrap();
-                    let state = State::from_i32(m.state).unwrap();
-                    let role = Role::from_i32(m.role).unwrap();
-                    debug!("{:?}", m);
-                    if state == State::Ready {
-                        match role {
-                            Role::Primary => primary = node_key.clone(),
-                            Role::Replica => replicas.push(node_key.clone()),
-                            Role::Candidate => debug!("{} is {:?}", node_key, &role),
+                    for node_key in node_keys {
+                        let m = node_metadata.get(node_key).unwrap();
+                        let state = State::from_i32(m.state).unwrap();
+                        let role = Role::from_i32(m.role).unwrap();
+                        debug!("{:?}", m);
+                        if state == State::Ready {
+                            match role {
+                                Role::Primary => primary = node_key.clone(),
+                                Role::Replica => replicas.push(node_key.clone()),
+                                Role::Candidate => debug!("{} is {:?}", node_key, &role),
+                            }
                         }
                     }
-                }
-                debug!("primary: {}", &primary);
-                debug!("replica: {:?}", &replicas);
+                    debug!("primary: {}", &primary);
+                    debug!("replica: {:?}", &replicas);
 
-                let target_key;
-                if replicas.len() > 0 {
-                    let i = rand::thread_rng().gen_range(0, replicas.len());
-                    target_key = replicas.get(i).unwrap();
-                } else {
-                    target_key = &primary;
-                }
-                debug!("selected node: {}", target_key);
-
-                let id = id.clone().to_string();
-
-                match clients.get(target_key) {
-                    Some(client) => {
-                        let client = client.clone();
-                        tokio::spawn(async move {
-                            let mut client: IndexServiceClient<Channel> = client.into();
-                            let req = tonic::Request::new(GetReq { id });
-                            match client.get(req).await {
-                                Ok(resp) => {
-                                    let doc = resp.into_inner().doc;
-                                    Ok(doc)
-                                }
-                                Err(e) => match e.code() {
-                                    Code::NotFound => Ok(Vec::new()),
-                                    _ => Err(Error::from(ErrorKind::Other(format!(
-                                        "{}",
-                                        e.message()
-                                    )))),
-                                },
-                            }
-                        })
+                    let target_key;
+                    if replicas.len() > 0 {
+                        let i = rand::thread_rng().gen_range(0, replicas.len());
+                        target_key = replicas.get(i).unwrap();
+                    } else {
+                        target_key = &primary;
                     }
-                    None => tokio::spawn(async move {
-                        Err(Error::from(ErrorKind::Other(format!(
-                            "client for {} does not exist",
-                            key
-                        ))))
-                    }),
-                }
-            })
-            .collect::<Vec<_>>();
+                    debug!("selected node: {}", target_key);
 
-        let results = match try_join_all(handles).await {
-            Ok(results) => results,
-            Err(e) => {
-                return Err(Error::from(ErrorKind::Other(format!("{}", e.to_string()))));
-            }
-        };
+                    let id = id.clone().to_string();
 
-        let docs = match results.into_iter().collect::<Result<Vec<Vec<u8>>, Error>>() {
-            Ok(results) => results,
-            Err(e) => {
-                return Err(Error::from(ErrorKind::Other(format!("{}", e.to_string()))));
-            }
-        };
+                    match clients.get(target_key) {
+                        Some(client) => {
+                            let client = client.clone();
+                            tokio::spawn(async move {
+                                let mut client: IndexServiceClient<Channel> = client.into();
+                                let req = tonic::Request::new(GetReq { id });
+                                match client.get(req).await {
+                                    Ok(resp) => {
+                                        let doc = resp.into_inner().doc;
+                                        Ok(doc)
+                                    }
+                                    Err(e) => match e.code() {
+                                        Code::NotFound => Ok(Vec::new()),
+                                        _ => Err(Error::new(e)),
+                                    },
+                                }
+                            })
+                        }
+                        None => tokio::spawn(async move {
+                            Err(anyhow!("client for {} does not exist", key))
+                        }),
+                    }
+                })
+                .collect::<Vec<_>>();
+
+        let results = try_join_all(handles)
+            .await
+            .with_context(|| "failed to join handles")?;
+
+        let docs = results
+            .into_iter()
+            .collect::<Result<Vec<Vec<u8>>, Error>>()
+            .with_context(|| "failed to collect documents")?;
 
         let mut ret = Vec::new();
         for ((_shard_key, _node_keys), doc) in shards.iter().zip(docs) {
