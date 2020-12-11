@@ -10,6 +10,7 @@ name = "phalanx"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1.0"
 clap = "2.33"
 hyper = "0.13"
 log = "0.4"

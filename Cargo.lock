@@ -1997,6 +1997,7 @@ dependencies = [
 name = "phalanx"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "hyper",
  "log",
@@ -2016,6 +2017,7 @@ dependencies = [
 name = "phalanx-client"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "crossbeam 0.8.0",
  "futures",
  "lazy_static",
@@ -2036,7 +2038,6 @@ version = "0.1.0"
 dependencies = [
  "dirs 3.0.1",
  "env_logger",
- "failure",
  "tokio",
 ]
 

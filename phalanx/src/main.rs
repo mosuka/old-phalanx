@@ -1,12 +1,12 @@
 use std::io::Write;
 
+use anyhow::Result;
 use clap::{
     crate_authors, crate_description, crate_name, crate_version, App, AppSettings, Arg, SubCommand,
 };
 
 use phalanx::command::index::run_index;
 use phalanx::command::overseer::run_overseer;
-use phalanx_common::error::Error;
 use phalanx_discovery::discovery::etcd::DEFAULT_ENDPOINTS as ETCD_DEFAULT_ENDPOINTS;
 use phalanx_discovery::discovery::DEFAULT_ROOT;
 use phalanx_index::index::config::{
@@ -20,7 +20,7 @@ use phalanx_storage::storage::minio::{
 use phalanx_storage::storage::DEFAULT_BUCKET;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<()> {
     let indexer_threads = &*num_cpus::get().to_string();
     let indexer_memory_size = &*DEFAULT_INDEXER_MEMORY_SIZE.to_string();
 
