@@ -1154,6 +1154,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hash_ring"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1164d572c778ceb9fc1fd4bde8521e9d43058685ce7bcb127d5553440183b385"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1185,6 +1194,12 @@ name = "hex"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "644f9158b2f133fd50f5fb3242878846d9eb792e445c893805ff0e3824006e35"
+
+[[package]]
+name = "highway"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66920f2e905206a4aca271ae71f1638f10854e3739f162fc465fb8aecce44446"
 
 [[package]]
 name = "hmac"
@@ -2020,6 +2035,8 @@ dependencies = [
  "anyhow",
  "crossbeam 0.8.0",
  "futures",
+ "hash_ring",
+ "highway",
  "lazy_static",
  "log",
  "phalanx-common",
@@ -2908,6 +2925,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
 name = "stdweb"
 version = "0.4.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3532,6 +3555,17 @@ name = "try-lock"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e604eb7b43c06650e854be16a2a03155743d3752dd1c943f6829e26b7a36e382"
+
+[[package]]
+name = "twox-hash"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04f8ab788026715fa63b31960869617cba39117e520eb415b0139543e325ab59"
+dependencies = [
+ "cfg-if 0.1.10",
+ "rand 0.7.3",
+ "static_assertions",
+]
 
 [[package]]
 name = "typenum"

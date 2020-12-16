@@ -273,6 +273,52 @@ $ phalanx index --address=0.0.0.0 \
                 --minio-endpoint=http://127.0.0.1:9000
 ```
 
+```shell script
+$ phalanx index --address=0.0.0.0 \
+                --grpc-port=5002 \
+                --http-port=8002 \
+                --index-directory=${HOME}/tmp/phalanx2 \
+                --schema-file=./etc/schema.json \
+                --tokenizer-file=./etc/tokenizer.json \
+                --indexer-threads=1 \
+                --indexer-memory-size=500000000 \
+                --unique-id-field=id \
+                --index-name=index0 \
+                --shard-name=shard1 \
+                --node-name=node2 \
+                --discovery-type=etcd \
+                --discovery-root=/phalanx \
+                --etcd-endpoints=http://127.0.0.1:2379 \
+                --storage-type=minio \
+                --storage-bucket=phalanx \
+                --minio-access-key=minioadmin \
+                --minio-secret-key=minioadmin \
+                --minio-endpoint=http://127.0.0.1:9000
+```
+
+```shell script
+$ phalanx index --address=0.0.0.0 \
+                --grpc-port=5003 \
+                --http-port=8003 \
+                --index-directory=${HOME}/tmp/phalanx3 \
+                --schema-file=./etc/schema.json \
+                --tokenizer-file=./etc/tokenizer.json \
+                --indexer-threads=1 \
+                --indexer-memory-size=500000000 \
+                --unique-id-field=id \
+                --index-name=index0 \
+                --shard-name=shard1 \
+                --node-name=node3 \
+                --discovery-type=etcd \
+                --discovery-root=/phalanx \
+                --etcd-endpoints=http://127.0.0.1:2379 \
+                --storage-type=minio \
+                --storage-bucket=phalanx \
+                --minio-access-key=minioadmin \
+                --minio-secret-key=minioadmin \
+                --minio-endpoint=http://127.0.0.1:9000
+```
+
 You can see the cluster information by opening a following URL in your browser and connecting to `etcd:2379`:
 
 http://localhost:8080/etcdkeeper/

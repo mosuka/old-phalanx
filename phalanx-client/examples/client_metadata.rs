@@ -4,7 +4,6 @@ use anyhow::{Context, Result};
 use tokio::time::Duration;
 
 use phalanx_client::client::Client;
-// use phalanx_common::error::Error;
 use phalanx_common::log::set_logger;
 use phalanx_discovery::discovery::etcd::{Etcd as EtcdDiscovery, EtcdConfig};
 use phalanx_discovery::discovery::DiscoveryContainer;
@@ -33,9 +32,10 @@ async fn main() -> Result<()> {
 
     sleep(Duration::from_secs(1));
 
-    match client.readiness("index0", None, None).await {
+    match client.metadata(Some("index0"), None, None).await {
         Ok(status) => {
-            println!("{:?}", status);
+            let json = serde_json::to_string(&status).unwrap();
+            println!("{}", json);
         }
         Err(e) => {
             println!("{}", e.to_string());
