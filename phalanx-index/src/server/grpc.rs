@@ -619,6 +619,8 @@ impl ProtoIndexService for IndexService {
         REQUEST_COUNTER.with_label_values(&["get"]).inc();
         let timer = REQUEST_HISTOGRAM.with_label_values(&["get"]).start_timer();
 
+        info!("{:?}", &request);
+
         let req = request.into_inner();
 
         match self.get(&req.id).await {
