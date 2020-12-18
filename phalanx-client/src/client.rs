@@ -20,7 +20,7 @@ use tonic::Code;
 use phalanx_discovery::discovery::nop::TYPE as NOP_TYPE;
 use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
-use phalanx_proto::phalanx::{GetReq, NodeDetails, Role, SetReq, State};
+use phalanx_proto::phalanx::{CommitReq, GetReq, NodeDetails, Role, SetReq, State};
 use serde_json::Value;
 
 const KEY_PATTERN: &'static str = r"^/([^/]+)/([^/]+)/([^/]+)\.json";
@@ -603,82 +603,62 @@ impl Client {
         Ok(metadata)
     }
 
-    pub async fn get(
-        &mut self,
-        id: &str,
-        index_name: &str,
-        shard_name: Option<&str>,
-        node_name: Option<&str>,
-    ) -> Result<Vec<u8>> {
-        // filter
-        let metadata = self
-            .metadata(Some(index_name), shard_name, node_name)
-            .await?;
+    pub async fn get(&mut self, id: &str, index_name: &str) -> Result<Vec<u8>> {
+        let metadata = self.metadata_map.read().await;
         debug!("metadata: {:?}", &metadata);
         let client_map = self.client_map.read().await;
 
         let mut handles: Vec<JoinHandle<Result<Vec<u8>, Error>>> = Vec::new();
-        for (m_index, m_shards) in metadata {
-            for (m_shard, m_nodes) in m_shards {
-                let mut primary = String::new();
-                let mut replicas: Vec<String> = Vec::new();
+        let metadata_shards = match metadata.get(index_name) {
+            Some(shards) => shards,
+            None => return Err(anyhow!("{} does not exist", index_name)),
+        };
 
-                for (m_node, m_metadata) in m_nodes {
-                    let i = m_index.clone();
-                    let s = m_shard.clone();
-
-                    let state = State::from_i32(m_metadata.state).unwrap();
-                    let role = Role::from_i32(m_metadata.role).unwrap();
-
-                    debug!("{}/{}/{}: {:?}", &i, &s, &m_node, m_metadata);
-
-                    if state == State::Ready {
-                        match role {
-                            Role::Primary => primary = format!("{}/{}/{}", i, s, m_node),
-                            Role::Replica => replicas.push(format!("{}/{}/{}", i, s, m_node)),
-                            Role::Candidate => {
-                                debug!("{} is {:?}", format!("{}/{}/{}", i, s, m_node), &role)
-                            }
+        for (shard_name, m_nodes) in metadata_shards {
+            let mut primary = "";
+            let mut replicas: Vec<&str> = Vec::new();
+            for (node, node_details) in m_nodes {
+                let state = State::from_i32(node_details.state).unwrap();
+                let role = Role::from_i32(node_details.role).unwrap();
+                if state == State::Ready {
+                    match role {
+                        Role::Primary => primary = node,
+                        Role::Replica => replicas.push(node),
+                        Role::Candidate => {
+                            debug!("{} is {:?}", node, role)
                         }
                     }
                 }
+            }
 
-                debug!("primary: {}", &primary);
-                debug!("replica: {:?}", &replicas);
+            debug!("primary: {}", &primary);
+            debug!("replica: {:?}", &replicas);
 
-                let target_key;
-                if replicas.len() > 0 {
-                    let idx = rand::thread_rng().gen_range(0, replicas.len());
-                    target_key = replicas.get(idx).unwrap().clone();
+            let node_name;
+            if replicas.len() > 0 {
+                let idx = rand::thread_rng().gen_range(0, replicas.len());
+                node_name = replicas.get(idx).unwrap().clone();
+            } else {
+                node_name = primary;
+            }
+
+            let client_indices = client_map.clone();
+            let index_name = index_name.to_string();
+            let shard_name = shard_name.to_string();
+            let node_name = node_name.to_string();
+
+            let id = id.to_string();
+
+            let handle = tokio::spawn(async move {
+                if node_name.len() <= 0 {
+                    Err(anyhow!("there is no available primary node"))
                 } else {
-                    target_key = primary;
-                }
-
-                debug!("selected node: {}", &target_key);
-                if target_key.len() <= 0 {
-                    let handle =
-                        tokio::spawn(async move { Err(anyhow!("there are no available nodes")) });
-                    handles.push(handle);
-                    continue;
-                }
-
-                let id = id.clone().to_string();
-
-                // split target_key to indices/shard/node
-                let k: Vec<String> = target_key.split('/').map(|k| k.to_string()).collect();
-                debug!("{:?}", k);
-                let i = k.get(0).unwrap();
-                let s = k.get(1).unwrap();
-                let n = k.get(2).unwrap();
-                match client_map.get(i) {
-                    Some(shards) => match shards.get(s) {
-                        Some(nodes) => match nodes.get(n) {
-                            Some(client) => {
-                                let client = client.clone();
-                                let handle = tokio::spawn(async move {
-                                    let mut client: IndexServiceClient<Channel> = client.into();
+                    match client_indices.get(&index_name) {
+                        Some(client_shards) => match client_shards.get(&shard_name) {
+                            Some(client_nodes) => match client_nodes.get(&node_name) {
+                                Some(client) => {
                                     let req = tonic::Request::new(GetReq { id });
-
+                                    let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.get(req).await {
                                         Ok(resp) => {
                                             let doc = resp.into_inner().doc;
@@ -689,31 +669,16 @@ impl Client {
                                             _ => Err(Error::new(e)),
                                         },
                                     }
-                                });
-                                handles.push(handle);
-                            }
-                            None => {
-                                let handle = tokio::spawn(async move {
-                                    Err(anyhow!("client for {} does not exist", target_key))
-                                });
-                                handles.push(handle);
-                            }
+                                }
+                                None => Err(anyhow!("{} does not exist", node_name)),
+                            },
+                            None => Err(anyhow!("{} does not exist", shard_name)),
                         },
-                        None => {
-                            let handle = tokio::spawn(async move {
-                                Err(anyhow!("client for {} does not exist", target_key))
-                            });
-                            handles.push(handle);
-                        }
-                    },
-                    None => {
-                        let handle = tokio::spawn(async move {
-                            Err(anyhow!("client for {} does not exist", target_key))
-                        });
-                        handles.push(handle);
+                        None => Err(anyhow!("{} does not exist", index_name)),
                     }
                 }
-            }
+            });
+            handles.push(handle);
         }
 
         let results = try_join_all(handles)
@@ -761,38 +726,31 @@ impl Client {
         };
         debug!("id field value is {:?}", id);
 
-        // filter
-        let metadata = self.metadata(Some(index_name), None, None).await?;
-        debug!("metadata: {:?}", &metadata);
-
         let ring_indices = self.shard_ring_map.read().await;
         let shard_ring = match ring_indices.get(index_name) {
             Some(shard_ring) => shard_ring,
             None => return Err(anyhow!("{} does not exist", index_name)),
         };
         let shard_name = shard_ring.get_node(id.to_string()).unwrap();
+        debug!("destination shard: {:?}", shard_name);
 
-        let mut node_name = "";
-        match metadata.get(index_name) {
-            Some(metadata_shards) => match metadata_shards.get(shard_name) {
-                Some(metadata_nodes) => {
-                    let mut primary_exists = false;
-                    for (node, node_details) in metadata_nodes {
-                        let state = State::from_i32(node_details.state).unwrap();
-                        let role = Role::from_i32(node_details.role).unwrap();
-                        if state == State::Ready && role == Role::Primary {
-                            node_name = node.as_str();
-                            primary_exists = true;
-                            break;
-                        }
-                    }
-                    if !primary_exists {
-                        return Err(anyhow!("primary node does not exist"));
-                    }
-                }
+        let metadata = self.metadata_map.read().await;
+        let metadata_nodes = match metadata.get(index_name) {
+            Some(shards) => match shards.get(shard_name) {
+                Some(nodes) => nodes,
                 None => return Err(anyhow!("{} does not exist", shard_name)),
             },
             None => return Err(anyhow!("{} does not exist", index_name)),
+        };
+
+        let mut node_name = "";
+        for (node, node_details) in metadata_nodes.iter() {
+            let state = State::from_i32(node_details.state).unwrap();
+            let role = Role::from_i32(node_details.role).unwrap();
+            if state == State::Ready && role == Role::Primary {
+                node_name = node.as_str();
+                break;
+            }
         }
         debug!("primary node is {:?}", node_name);
 
@@ -813,6 +771,83 @@ impl Client {
         match client.set(req).await {
             Ok(_resp) => Ok(()),
             Err(e) => Err(Error::new(e)),
+        }
+    }
+
+    pub async fn commit(&mut self, index_name: &str) -> Result<()> {
+        let metadata = self.metadata_map.read().await;
+        debug!("metadata: {:?}", &metadata);
+        let client_map = self.client_map.read().await;
+
+        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let metadata_shards = match metadata.get(index_name) {
+            Some(shards) => shards,
+            None => return Err(anyhow!("{} does not exist", index_name)),
+        };
+
+        for (shard_name, nodes) in metadata_shards {
+            let mut node_name = "";
+            for (node, node_details) in nodes {
+                let state = State::from_i32(node_details.state).unwrap();
+                let role = Role::from_i32(node_details.role).unwrap();
+                if state == State::Ready && role == Role::Primary {
+                    node_name = node.as_str();
+                    break;
+                }
+            }
+            debug!("primary node is {:?}", node_name);
+
+            let client_indices = client_map.clone();
+            let index_name = index_name.to_string();
+            let shard_name = shard_name.to_string();
+            let node_name = node_name.to_string();
+            let handle = tokio::spawn(async move {
+                if node_name.len() <= 0 {
+                    Err(anyhow!("there is no available primary node"))
+                } else {
+                    match client_indices.get(&index_name) {
+                        Some(client_shards) => match client_shards.get(&shard_name) {
+                            Some(client_nodes) => match client_nodes.get(&node_name) {
+                                Some(client) => {
+                                    let req = tonic::Request::new(CommitReq {});
+                                    let mut client: IndexServiceClient<Channel> = client.clone();
+                                    match client.commit(req).await {
+                                        Ok(_resp) => Ok(()),
+                                        Err(e) => Err(Error::new(e)),
+                                    }
+                                }
+                                None => Err(anyhow!("{} does not exist", node_name)),
+                            },
+                            None => Err(anyhow!("{} does not exist", shard_name)),
+                        },
+                        None => Err(anyhow!("{} does not exist", index_name)),
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        let results = try_join_all(handles)
+            .await
+            .with_context(|| "failed to join handles")?;
+        let results_cnt = results.len();
+
+        let mut errs = Vec::new();
+        for result in results {
+            match result {
+                Ok(()) => (),
+                Err(e) => {
+                    error!("{}", &e.to_string());
+                    errs.push(e);
+                }
+            }
+        }
+
+        if results_cnt != errs.len() {
+            Ok(())
+        } else {
+            let e = errs.get(0).unwrap().to_string();
+            Err(anyhow!(e))
         }
     }
 }

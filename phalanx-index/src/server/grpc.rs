@@ -619,7 +619,7 @@ impl ProtoIndexService for IndexService {
         REQUEST_COUNTER.with_label_values(&["get"]).inc();
         let timer = REQUEST_HISTOGRAM.with_label_values(&["get"]).start_timer();
 
-        info!("{:?}", &request);
+        info!("get {:?}", request);
 
         let req = request.into_inner();
 
@@ -653,6 +653,8 @@ impl ProtoIndexService for IndexService {
         REQUEST_COUNTER.with_label_values(&["set"]).inc();
         let timer = REQUEST_HISTOGRAM.with_label_values(&["set"]).start_timer();
 
+        info!("put {:?}", request);
+
         let req = request.into_inner();
 
         match self.set(req.doc).await {
@@ -678,6 +680,8 @@ impl ProtoIndexService for IndexService {
         let timer = REQUEST_HISTOGRAM
             .with_label_values(&["delete"])
             .start_timer();
+
+        info!("delete {:?}", request);
 
         let req = request.into_inner();
 
@@ -708,9 +712,10 @@ impl ProtoIndexService for IndexService {
             .with_label_values(&["bulk_set"])
             .start_timer();
 
+        info!("bulk_put {:?}", request);
+
         let req = request.into_inner();
 
-        // let docs = req.docs.iter().map(|doc| doc.as_str()).collect();
         match self.bulk_set(req.docs).await {
             Ok(_) => {
                 let reply = BulkSetReply {};
@@ -738,6 +743,8 @@ impl ProtoIndexService for IndexService {
             .with_label_values(&["bulk_delete"])
             .start_timer();
 
+        info!("bulk_delete {:?}", request);
+
         let req = request.into_inner();
 
         let ids = req.ids.iter().map(|id| id.as_str()).collect();
@@ -759,11 +766,13 @@ impl ProtoIndexService for IndexService {
         }
     }
 
-    async fn commit(&self, _request: Request<CommitReq>) -> Result<Response<CommitReply>, Status> {
+    async fn commit(&self, request: Request<CommitReq>) -> Result<Response<CommitReply>, Status> {
         REQUEST_COUNTER.with_label_values(&["commit"]).inc();
         let timer = REQUEST_HISTOGRAM
             .with_label_values(&["commit"])
             .start_timer();
+
+        info!("commit {:?}", request);
 
         match self.commit().await {
             Ok(_) => {
@@ -786,12 +795,14 @@ impl ProtoIndexService for IndexService {
 
     async fn rollback(
         &self,
-        _request: Request<RollbackReq>,
+        request: Request<RollbackReq>,
     ) -> Result<Response<RollbackReply>, Status> {
         REQUEST_COUNTER.with_label_values(&["rollback"]).inc();
         let timer = REQUEST_HISTOGRAM
             .with_label_values(&["rollback"])
             .start_timer();
+
+        info!("rollback {:?}", request);
 
         match self.rollback().await {
             Ok(_) => {
@@ -812,11 +823,13 @@ impl ProtoIndexService for IndexService {
         }
     }
 
-    async fn merge(&self, _request: Request<MergeReq>) -> Result<Response<MergeReply>, Status> {
+    async fn merge(&self, request: Request<MergeReq>) -> Result<Response<MergeReply>, Status> {
         REQUEST_COUNTER.with_label_values(&["merge"]).inc();
         let timer = REQUEST_HISTOGRAM
             .with_label_values(&["merge"])
             .start_timer();
+
+        info!("merge {:?}", request);
 
         match self.merge().await {
             Ok(_) => {
@@ -837,11 +850,13 @@ impl ProtoIndexService for IndexService {
         }
     }
 
-    async fn schema(&self, _request: Request<SchemaReq>) -> Result<Response<SchemaReply>, Status> {
+    async fn schema(&self, request: Request<SchemaReq>) -> Result<Response<SchemaReply>, Status> {
         REQUEST_COUNTER.with_label_values(&["schema"]).inc();
         let timer = REQUEST_HISTOGRAM
             .with_label_values(&["schema"])
             .start_timer();
+
+        info!("schema {:?}", request);
 
         match serde_json::to_vec(&self.schema()) {
             Ok(schema) => {
@@ -867,6 +882,8 @@ impl ProtoIndexService for IndexService {
         let timer = REQUEST_HISTOGRAM
             .with_label_values(&["search"])
             .start_timer();
+
+        info!("search {:?}", request);
 
         let req = request.into_inner();
 
