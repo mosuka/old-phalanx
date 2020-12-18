@@ -20,7 +20,9 @@ use tonic::Code;
 use phalanx_discovery::discovery::nop::TYPE as NOP_TYPE;
 use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
-use phalanx_proto::phalanx::{CommitReq, DeleteReq, GetReq, NodeDetails, Role, RollbackReq, SetReq, State};
+use phalanx_proto::phalanx::{
+    CommitReq, DeleteReq, GetReq, NodeDetails, Role, RollbackReq, SetReq, State,
+};
 use serde_json::Value;
 
 const KEY_PATTERN: &'static str = r"^/([^/]+)/([^/]+)/([^/]+)\.json";
