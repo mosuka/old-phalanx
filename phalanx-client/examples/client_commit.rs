@@ -32,9 +32,9 @@ async fn main() -> Result<()> {
 
     sleep(Duration::from_secs(1));
 
-    match client.get("1", "index0").await {
-        Ok(doc) => {
-            println!("{}", String::from_utf8(doc).unwrap());
+    match client.commit("index0").await {
+        Ok(_) => {
+            println!("ok");
         }
         Err(e) => {
             println!("error: {}", e.to_string());
