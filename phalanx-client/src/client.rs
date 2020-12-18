@@ -20,7 +20,7 @@ use tonic::Code;
 use phalanx_discovery::discovery::nop::TYPE as NOP_TYPE;
 use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
-use phalanx_proto::phalanx::{CommitReq, GetReq, NodeDetails, Role, SetReq, State};
+use phalanx_proto::phalanx::{CommitReq, DeleteReq, GetReq, NodeDetails, Role, SetReq, State};
 use serde_json::Value;
 
 const KEY_PATTERN: &'static str = r"^/([^/]+)/([^/]+)/([^/]+)\.json";
@@ -62,7 +62,6 @@ fn parse_key(key: &str) -> Result<(String, String, String)> {
 type HighwayBuildHasher = BuildHasherDefault<HighwayHasher>;
 
 #[derive(Clone)]
-// pub struct Client<'a> {
 pub struct Client {
     discovery_container: DiscoveryContainer,
     watching: Arc<AtomicBool>,
@@ -70,12 +69,9 @@ pub struct Client {
     metadata_map: Arc<RwLock<HashMap<String, HashMap<String, HashMap<String, NodeDetails>>>>>,
     client_map:
         Arc<RwLock<HashMap<String, HashMap<String, HashMap<String, IndexServiceClient<Channel>>>>>>,
-    // shard_ring_map: Arc<RwLock<HashMap<String, Ring<'a, &'a str, HighwayBuildHasher>>>>,
     shard_ring_map: Arc<RwLock<HashMap<String, HashRing<String, HighwayBuildHasher>>>>,
 }
 
-// impl Client<'_> {
-//     pub async fn new(discovery_container: DiscoveryContainer) -> Client<'static> {
 impl Client {
     pub async fn new(discovery_container: DiscoveryContainer) -> Client {
         Client {
@@ -226,16 +222,6 @@ impl Client {
                 error!("failed to list: error={:?}", err);
             }
         };
-
-        // // debug info
-        // let indices = self.metadata_map.read().await;
-        // for (index, shards) in indices.iter() {
-        //     for (shard, nodes) in shards.iter() {
-        //         for (node, metadata) in nodes.iter() {
-        //             debug!("{}/{}/{}={:?}", index, shard, node, metadata);
-        //         }
-        //     }
-        // }
 
         let metadata_map = Arc::clone(&self.metadata_map);
         let client_map = Arc::clone(&self.client_map);
@@ -449,16 +435,6 @@ impl Client {
                                 }
                             }
                         };
-
-                        // // debug info
-                        // let indices = metadata_map.read().await;
-                        // for (index, shards) in indices.iter() {
-                        //     for (shard, nodes) in shards.iter() {
-                        //         for (node, metadata) in nodes.iter() {
-                        //             debug!("{}/{}/{}={:?}", index, shard, node, metadata);
-                        //         }
-                        //     }
-                        // }
                     }
                     Err(TryRecvError::Disconnected) => {
                         debug!("channel disconnected");
@@ -513,6 +489,7 @@ impl Client {
         node_name: Option<&str>,
     ) -> Result<HashMap<String, HashMap<String, HashMap<String, NodeDetails>>>> {
         let indices = self.metadata_map.read().await;
+        debug!("metadata: {:?}", &indices);
 
         let mut metadata = HashMap::new();
         match index_name {
@@ -606,6 +583,7 @@ impl Client {
     pub async fn get(&mut self, id: &str, index_name: &str) -> Result<Vec<u8>> {
         let metadata = self.metadata_map.read().await;
         debug!("metadata: {:?}", &metadata);
+
         let client_map = self.client_map.read().await;
 
         let mut handles: Vec<JoinHandle<Result<Vec<u8>, Error>>> = Vec::new();
@@ -735,6 +713,8 @@ impl Client {
         debug!("destination shard: {:?}", shard_name);
 
         let metadata = self.metadata_map.read().await;
+        debug!("metadata: {:?}", &metadata);
+
         let metadata_nodes = match metadata.get(index_name) {
             Some(shards) => match shards.get(shard_name) {
                 Some(nodes) => nodes,
@@ -774,9 +754,89 @@ impl Client {
         }
     }
 
+    pub async fn delete(&mut self, id: &str, index_name: &str) -> Result<()> {
+        let metadata = self.metadata_map.read().await;
+        debug!("metadata: {:?}", &metadata);
+
+        let client_map = self.client_map.read().await;
+
+        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let metadata_shards = match metadata.get(index_name) {
+            Some(shards) => shards,
+            None => return Err(anyhow!("{} does not exist", index_name)),
+        };
+
+        for (shard_name, nodes) in metadata_shards {
+            let mut node_name = "";
+            for (node, node_details) in nodes {
+                let state = State::from_i32(node_details.state).unwrap();
+                let role = Role::from_i32(node_details.role).unwrap();
+                if state == State::Ready && role == Role::Primary {
+                    node_name = node.as_str();
+                    break;
+                }
+            }
+            debug!("primary node is {:?}", node_name);
+
+            let client_indices = client_map.clone();
+            let index_name = index_name.to_string();
+            let shard_name = shard_name.to_string();
+            let node_name = node_name.to_string();
+            let id = id.to_string();
+            let handle = tokio::spawn(async move {
+                if node_name.len() <= 0 {
+                    Err(anyhow!("there is no available primary node"))
+                } else {
+                    match client_indices.get(&index_name) {
+                        Some(client_shards) => match client_shards.get(&shard_name) {
+                            Some(client_nodes) => match client_nodes.get(&node_name) {
+                                Some(client) => {
+                                    let req = tonic::Request::new(DeleteReq { id });
+                                    let mut client: IndexServiceClient<Channel> = client.clone();
+                                    match client.delete(req).await {
+                                        Ok(_resp) => Ok(()),
+                                        Err(e) => Err(Error::new(e)),
+                                    }
+                                }
+                                None => Err(anyhow!("{} does not exist", node_name)),
+                            },
+                            None => Err(anyhow!("{} does not exist", shard_name)),
+                        },
+                        None => Err(anyhow!("{} does not exist", index_name)),
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        let results = try_join_all(handles)
+            .await
+            .with_context(|| "failed to join handles")?;
+        let results_cnt = results.len();
+
+        let mut errs = Vec::new();
+        for result in results {
+            match result {
+                Ok(()) => (),
+                Err(e) => {
+                    error!("{}", &e.to_string());
+                    errs.push(e);
+                }
+            }
+        }
+
+        if results_cnt != errs.len() {
+            Ok(())
+        } else {
+            let e = errs.get(0).unwrap().to_string();
+            Err(anyhow!(e))
+        }
+    }
+
     pub async fn commit(&mut self, index_name: &str) -> Result<()> {
         let metadata = self.metadata_map.read().await;
         debug!("metadata: {:?}", &metadata);
+
         let client_map = self.client_map.read().await;
 
         let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
