@@ -21,8 +21,8 @@ use phalanx_discovery::discovery::nop::TYPE as NOP_TYPE;
 use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::{
-    BulkSetReq, CommitReq, DeleteReq, GetReq, MergeReq, NodeDetails, Role, RollbackReq, SetReq,
-    State,
+    BulkDeleteReq, BulkSetReq, CommitReq, DeleteReq, GetReq, MergeReq, NodeDetails, Role,
+    RollbackReq, SetReq, State,
 };
 use serde_json::Value;
 
@@ -843,7 +843,7 @@ impl Client {
         id_field: &str,
     ) -> Result<()> {
         let metadata = self.metadata_map.read().await;
-        info!("metadata: {:?}", &metadata);
+        debug!("metadata: {:?}", &metadata);
 
         let client_map = self.client_map.read().await;
 
@@ -855,7 +855,7 @@ impl Client {
 
         let mut docs_map = HashMap::new();
         for doc in docs {
-            info!("{}", String::from_utf8(doc.clone()).unwrap());
+            debug!("{}", String::from_utf8(doc.clone()).unwrap());
             let value: Value = match serde_json::from_slice::<Value>(&doc.as_slice()) {
                 Ok(value) => value,
                 Err(e) => {
@@ -868,10 +868,10 @@ impl Client {
                     return Err(anyhow!("{} does not exist", id_field));
                 }
             };
-            info!("id field value is {:?}", id);
+            debug!("id field value is {:?}", id);
 
             let shard_name = shard_ring.get_node(id.to_string()).unwrap();
-            info!("destination shard: {:?}", shard_name);
+            debug!("destination shard: {:?}", shard_name);
 
             if !docs_map.contains_key(shard_name) {
                 let docs = Vec::new();
@@ -899,7 +899,7 @@ impl Client {
                     break;
                 }
             }
-            info!("primary node is {:?}", node_name);
+            debug!("primary node is {:?}", node_name);
 
             let client_indices = client_map.clone();
             let index_name = index_name.to_string();
@@ -916,6 +916,85 @@ impl Client {
                                     let req = tonic::Request::new(BulkSetReq { docs });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.bulk_set(req).await {
+                                        Ok(_resp) => Ok(()),
+                                        Err(e) => Err(Error::new(e)),
+                                    }
+                                }
+                                None => Err(anyhow!("{} does not exist", node_name)),
+                            },
+                            None => Err(anyhow!("{} does not exist", shard_name)),
+                        },
+                        None => Err(anyhow!("{} does not exist", index_name)),
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        let results = try_join_all(handles)
+            .await
+            .with_context(|| "failed to join handles")?;
+        let results_cnt = results.len();
+
+        let mut errs = Vec::new();
+        for result in results {
+            match result {
+                Ok(()) => (),
+                Err(e) => {
+                    error!("{}", &e.to_string());
+                    errs.push(e);
+                }
+            }
+        }
+
+        if results_cnt != errs.len() {
+            Ok(())
+        } else {
+            let e = errs.get(0).unwrap().to_string();
+            Err(anyhow!(e))
+        }
+    }
+
+    pub async fn bulk_delete(&mut self, ids: Vec<&str>, index_name: &str) -> Result<()> {
+        let metadata = self.metadata_map.read().await;
+        debug!("metadata: {:?}", &metadata);
+
+        let client_map = self.client_map.read().await;
+
+        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let metadata_shards = match metadata.get(index_name) {
+            Some(shards) => shards,
+            None => return Err(anyhow!("{} does not exist", index_name)),
+        };
+
+        for (shard_name, nodes) in metadata_shards {
+            let mut node_name = "";
+            for (node, node_details) in nodes {
+                let state = State::from_i32(node_details.state).unwrap();
+                let role = Role::from_i32(node_details.role).unwrap();
+                if state == State::Ready && role == Role::Primary {
+                    node_name = node.as_str();
+                    break;
+                }
+            }
+            debug!("primary node is {:?}", node_name);
+
+            let client_indices = client_map.clone();
+            let index_name = index_name.to_string();
+            let shard_name = shard_name.to_string();
+            let node_name = node_name.to_string();
+            let ids: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+            let handle = tokio::spawn(async move {
+                if node_name.len() <= 0 {
+                    Err(anyhow!("there is no available primary node"))
+                } else {
+                    match client_indices.get(&index_name) {
+                        Some(client_shards) => match client_shards.get(&shard_name) {
+                            Some(client_nodes) => match client_nodes.get(&node_name) {
+                                Some(client) => {
+                                    let req = tonic::Request::new(BulkDeleteReq { ids });
+                                    let mut client: IndexServiceClient<Channel> = client.clone();
+                                    match client.bulk_delete(req).await {
                                         Ok(_resp) => Ok(()),
                                         Err(e) => Err(Error::new(e)),
                                     }
