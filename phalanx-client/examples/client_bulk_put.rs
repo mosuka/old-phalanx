@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::thread::sleep;
 
 use anyhow::{Context, Result};
@@ -32,45 +34,17 @@ async fn main() -> Result<()> {
 
     sleep(Duration::from_secs(1));
 
-    match client.get("1", "index0").await {
-        Ok(doc) => {
-            println!("{}", String::from_utf8(doc).unwrap());
-        }
-        Err(e) => {
-            println!("error: {}", e.to_string());
-        }
-    };
+    let mut docs = Vec::new();
+    let file =
+        File::open("./examples/bulk_put.jsonl").with_context(|| "failed to read document JSON")?;
+    for line in BufReader::new(file).lines() {
+        let doc = Vec::from(line.unwrap());
+        docs.push(doc);
+    }
 
-    match client.get("2", "index0").await {
-        Ok(doc) => {
-            println!("{}", String::from_utf8(doc).unwrap());
-        }
-        Err(e) => {
-            println!("error: {}", e.to_string());
-        }
-    };
-
-    match client.get("3", "index0").await {
-        Ok(doc) => {
-            println!("{}", String::from_utf8(doc).unwrap());
-        }
-        Err(e) => {
-            println!("error: {}", e.to_string());
-        }
-    };
-
-    match client.get("4", "index0").await {
-        Ok(doc) => {
-            println!("{}", String::from_utf8(doc).unwrap());
-        }
-        Err(e) => {
-            println!("error: {}", e.to_string());
-        }
-    };
-
-    match client.get("5", "index0").await {
-        Ok(doc) => {
-            println!("{}", String::from_utf8(doc).unwrap());
+    match client.bulk_put(docs, "index0", "id").await {
+        Ok(_) => {
+            println!("ok");
         }
         Err(e) => {
             println!("error: {}", e.to_string());
