@@ -42,7 +42,10 @@ async fn main() -> Result<()> {
         docs.push(doc);
     }
 
-    match client.bulk_delete(docs.iter().map(|id| id.as_str()).collect(), "index0").await {
+    match client
+        .bulk_delete(docs.iter().map(|id| id.as_str()).collect(), "index0")
+        .await
+    {
         Ok(_) => {
             println!("ok");
         }
