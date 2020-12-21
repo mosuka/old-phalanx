@@ -20,4 +20,5 @@ tonic = "0.3"
 
 phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
 phalanx-discovery = { version = "0.1.0", path = "../phalanx-discovery" }
+phalanx-index = { version = "0.1.0", path = "../phalanx-index" }
 phalanx-proto = { version = "0.1.0", path = "../phalanx-proto" }

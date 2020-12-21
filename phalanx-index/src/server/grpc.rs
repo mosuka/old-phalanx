@@ -59,10 +59,27 @@ impl IndexService {
         let p = Path::new(&index_config.index_dir);
         fs::create_dir_all(p).unwrap_or_default();
 
+        let dir = match MmapDirectory::open(p) {
+            Ok(dir) => dir,
+            Err(e) => {
+                error!("failed to open mmap directory: error = {:?}", e);
+                panic!();
+            }
+        };
+
+        let index_exists = match Index::exists(&dir) {
+            Ok(index_exists) => index_exists,
+            Err(e) => {
+                error!(
+                    "failed to check for the existence of index: error = {:?}",
+                    e
+                );
+                panic!();
+            }
+        };
+
         // create index
-        // let dir = MmapDirectory::open(&index_config.index_dir).unwrap();
-        let dir = MmapDirectory::open(p).unwrap();
-        let index = if Index::exists(&dir) {
+        let index = if index_exists {
             // open index if the index exists in local file system
             match Index::open(dir) {
                 Ok(index) => index,
@@ -213,18 +230,18 @@ impl IndexService {
             }
         };
 
-        let value_count = doc.get_all(self.unique_key_field).len();
-        if value_count < 1 {
-            return Err(Box::new(IOError::new(
-                ErrorKind::Other,
-                format!("unique key field not included"),
-            )));
-        } else if value_count > 1 {
-            return Err(Box::new(IOError::new(
-                ErrorKind::Other,
-                format!("multiple unique key fields included"),
-            )));
-        }
+        // let value_count = doc.get_all(self.unique_key_field).len();
+        // if value_count < 1 {
+        //     return Err(Box::new(IOError::new(
+        //         ErrorKind::Other,
+        //         format!("unique key field not included"),
+        //     )));
+        // } else if value_count > 1 {
+        //     return Err(Box::new(IOError::new(
+        //         ErrorKind::Other,
+        //         format!("multiple unique key fields included"),
+        //     )));
+        // }
 
         let id = match doc.get_first(self.unique_key_field).unwrap().text() {
             Some(id) => id,
@@ -280,18 +297,18 @@ impl IndexService {
                 }
             };
 
-            let fields = doc_obj.get_all(self.unique_key_field);
-            let value_count = fields.len();
-            if value_count < 1 {
-                error!("unique key field not included: doc={}", &doc_json);
-                error_count += 1;
-                continue;
-            } else if value_count > 1 {
-                error!("multiple unique key fields included: doc={}", &doc_json);
-                error_count += 1;
-                continue;
-            }
-            let id = match fields.first().unwrap().text() {
+            // let fields = doc_obj.get_all(self.unique_key_field);
+            // let value_count = fields.len();
+            // if value_count < 1 {
+            //     error!("unique key field not included: doc={}", &doc_json);
+            //     error_count += 1;
+            //     continue;
+            // } else if value_count > 1 {
+            //     error!("multiple unique key fields included: doc={}", &doc_json);
+            //     error_count += 1;
+            //     continue;
+            // }
+            let id = match doc_obj.get_first(self.unique_key_field).unwrap().text() {
                 Some(id) => id,
                 None => {
                     error!("failed to get unique key field value: doc={}", &doc_json);
@@ -432,8 +449,9 @@ impl IndexService {
         match search_request.collection_type {
             CollectionType::CountAndTopDocs => {
                 count_handle = Some(multi_collector.add_collector(Count));
-                top_docs_handle =
-                    Some(multi_collector.add_collector(TopDocs::with_limit(limit as usize)));
+                top_docs_handle = Some(multi_collector.add_collector(
+                    TopDocs::with_limit(limit as usize).and_offset(search_request.from as usize),
+                ));
             }
             CollectionType::Count => {
                 count_handle = Some(multi_collector.add_collector(Count));
@@ -441,8 +459,9 @@ impl IndexService {
             }
             CollectionType::TopDocs => {
                 count_handle = None;
-                top_docs_handle =
-                    Some(multi_collector.add_collector(TopDocs::with_limit(limit as usize)));
+                top_docs_handle = Some(multi_collector.add_collector(
+                    TopDocs::with_limit(limit as usize).and_offset(search_request.from as usize),
+                ));
             }
         }
 
@@ -513,18 +532,14 @@ impl IndexService {
 
                 // docs
                 let mut docs: Vec<ScoredNamedFieldDocument> = Vec::new();
-                let mut doc_pos: u64 = 0;
                 for (score, doc_address) in top_docs {
-                    if doc_pos >= search_request.from as u64 {
-                        let doc = searcher.doc(doc_address).unwrap();
-                        let named_doc = self.index.schema().to_named_doc(&doc);
-                        let scored_doc = ScoredNamedFieldDocument {
-                            fields: named_doc,
-                            score,
-                        };
-                        docs.push(scored_doc);
-                    }
-                    doc_pos += 1;
+                    let doc = searcher.doc(doc_address).unwrap();
+                    let named_doc = self.index.schema().to_named_doc(&doc);
+                    let scored_doc = ScoredNamedFieldDocument {
+                        fields: named_doc,
+                        score,
+                    };
+                    docs.push(scored_doc);
                 }
 
                 // search result
