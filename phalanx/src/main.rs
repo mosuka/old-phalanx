@@ -5,6 +5,7 @@ use clap::{
     crate_authors, crate_description, crate_name, crate_version, App, AppSettings, Arg, SubCommand,
 };
 
+use phalanx::command::dispatcher::run_dispatcher;
 use phalanx::command::index::run_index;
 use phalanx::command::overseer::run_overseer;
 use phalanx_discovery::discovery::etcd::DEFAULT_ENDPOINTS as ETCD_DEFAULT_ENDPOINTS;
@@ -269,6 +270,64 @@ async fn main() -> Result<()> {
                         .default_value("100")
                         .takes_value(true),
                 ),
+        )
+        .subcommand(
+            SubCommand::with_name("dispatcher")
+                .setting(AppSettings::DeriveDisplayOrder)
+                .setting(AppSettings::DisableVersion)
+                .author(crate_authors!())
+                .about("Runs dicpatcher node")
+                .arg(
+                    Arg::with_name("address")
+                        .help("The hostname, IP or FQDN that runs the index service.")
+                        .long("address")
+                        .value_name("ADDRESS")
+                        .default_value("0.0.0.0")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("grpc_port")
+                        .help("The gRPC port number used for the index service.")
+                        .long("grpc-port")
+                        .value_name("GRPC_PORT")
+                        .default_value("5200")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("http_port")
+                        .help("The HTTP port number used for the index service.")
+                        .long("http-port")
+                        .value_name("HTTP_PORT")
+                        .default_value("8200")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("discovery_type")
+                        .help("Specify the backend to be used for service discovery. If omitted, service discovery is not used. The available backends are as follows: etcd")
+                        .long("discovery-type")
+                        .value_name("DISCOVERY_TYPE")
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("discovery_root")
+                        .help("Specifies the prefix to store the data for the service discovery backend.")
+                        .long("discovery-root")
+                        .value_name("DISCOVERY_ROOT")
+                        .default_value(DEFAULT_ROOT)
+                        .takes_value(true),
+                )
+                .arg(
+                    Arg::with_name("etcd_endpoints")
+                        .help("The etcd endpoints. Use `,` to separate address. Example: `http://etcd1:2379,http://etcd2:2379,http://etcd3:2379`. Enabled when specifying the discovery type as etcd.")
+                        .long("etcd-endpoints")
+                        .value_name("ETCD_ENDPOINTS")
+                        .default_value(ETCD_DEFAULT_ENDPOINTS)
+                        .multiple(true)
+                        .use_delimiter(true)
+                        .require_delimiter(true)
+                        .value_delimiter(",")
+                        .takes_value(true),
+                ),
         );
 
     let arg_matches = app.get_matches();
@@ -278,6 +337,7 @@ async fn main() -> Result<()> {
     let result = match subcommand {
         "index" => run_index(options).await,
         "overseer" => run_overseer(options).await,
+        "dispatcher" => run_dispatcher(options).await,
         _ => panic!("unknown command: {:?}", subcommand),
     };
     match result {
