@@ -1,602 +1,71 @@
 use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Error, Result};
-use crossbeam::channel::{unbounded, TryRecvError};
 use futures::future::try_join_all;
-use hash_ring::HashRing;
-use highway::HighwayHasher;
 use lazy_static::lazy_static;
 use log::*;
+use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
 use rand::Rng;
-use regex::Regex;
 use serde_json::Value;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+use tonic::codegen::Arc;
 use tonic::transport::Channel;
 use tonic::Code;
+use tonic::{Request, Response, Status};
 
-use phalanx_discovery::discovery::nop::TYPE as NOP_TYPE;
-use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
-// use phalanx_index::index::search_request::SearchRequest;
 use phalanx_index::index::search_result::SearchResult;
+use phalanx_proto::phalanx::dispatcher_service_server::DispatcherService as ProtoDispatcherService;
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::{
-    BulkDeleteReq, BulkSetReq, CommitReq, DeleteReq, GetReq, MergeReq, NodeDetails, Role,
-    RollbackReq, SearchReq, SetReq, State,
+    BulkDeleteReply, BulkDeleteReq, BulkSetReply, BulkSetReq, CommitReply, CommitReq, DeleteReply,
+    DeleteReq, GetReply, GetReq, MergeReply, MergeReq, ReadinessReply, ReadinessReq, Role,
+    RollbackReply, RollbackReq, SearchReply, SearchReq, SetReply, SetReq, State, UnwatchReply,
+    UnwatchReq, WatchReply, WatchReq,
 };
 
-const KEY_PATTERN: &'static str = r"^/([^/]+)/([^/]+)/([^/]+)\.json";
+use crate::watcher::Watcher;
 
 lazy_static! {
-    static ref KEY_REGEX: Regex = Regex::new(KEY_PATTERN).unwrap();
+    static ref REQUEST_COUNTER: CounterVec = register_counter_vec!(
+        "phalanx_dispatcher_requests_total",
+        "Total number of requests.",
+        &["func"]
+    )
+    .unwrap();
+    static ref REQUEST_HISTOGRAM: HistogramVec = register_histogram_vec!(
+        "phalanx_dispatcher_request_duration_seconds",
+        "The request latencies in seconds.",
+        &["func"]
+    )
+    .unwrap();
 }
 
-fn parse_key(key: &str) -> Result<(String, String, String)> {
-    match KEY_REGEX.captures(key) {
-        Some(cap) => {
-            let value1 = match cap.get(1) {
-                Some(m) => m.as_str(),
-                None => {
-                    return Err(anyhow!("value does not match"));
-                }
-            };
-
-            let value2 = match cap.get(2) {
-                Some(m) => m.as_str(),
-                None => {
-                    return Err(anyhow!("value does not match"));
-                }
-            };
-
-            let value3 = match cap.get(3) {
-                Some(m) => m.as_str(),
-                None => {
-                    return Err(anyhow!("value does not match"));
-                }
-            };
-
-            Ok((value1.to_string(), value2.to_string(), value3.to_string()))
-        }
-        None => Err(anyhow!("{:?} does not match {:?}", key, KEY_PATTERN)),
-    }
+pub struct DispatcherService {
+    watcher: Arc<RwLock<Watcher>>,
 }
 
-type HighwayBuildHasher = BuildHasherDefault<HighwayHasher>;
-
-#[derive(Clone)]
-pub struct Client {
-    discovery_container: DiscoveryContainer,
-    watching: Arc<AtomicBool>,
-    unwatch: Arc<AtomicBool>,
-    metadata_map: Arc<RwLock<HashMap<String, HashMap<String, HashMap<String, NodeDetails>>>>>,
-    client_map:
-        Arc<RwLock<HashMap<String, HashMap<String, HashMap<String, IndexServiceClient<Channel>>>>>>,
-    shard_ring_map: Arc<RwLock<HashMap<String, HashRing<String, HighwayBuildHasher>>>>,
-}
-
-impl Client {
-    pub async fn new(discovery_container: DiscoveryContainer) -> Client {
-        Client {
-            discovery_container,
-            watching: Arc::new(AtomicBool::new(false)),
-            unwatch: Arc::new(AtomicBool::new(false)),
-            metadata_map: Arc::new(RwLock::new(HashMap::new())),
-            client_map: Arc::new(RwLock::new(HashMap::new())),
-            shard_ring_map: Arc::new(RwLock::new(HashMap::new())),
+impl DispatcherService {
+    pub async fn new(watcher: Watcher) -> DispatcherService {
+        DispatcherService {
+            watcher: Arc::new(RwLock::new(watcher)),
         }
     }
 
-    pub async fn watch(&mut self, key: &str) -> Result<()> {
-        if self.discovery_container.discovery.get_type() == NOP_TYPE {
-            debug!("the NOP discovery does not do anything");
-            return Ok(());
-        }
+    pub async fn get(&self, index_name: &str, id: &str) -> Result<Vec<u8>> {
+        let watcher_arc = Arc::clone(&self.watcher);
+        let watcher = watcher_arc.read().await;
 
-        if self.watching.load(Ordering::Relaxed) {
-            let msg = "receiver is already running";
-            warn!("{}", &msg);
-            return Err(anyhow!(msg));
-        }
+        let metadata = watcher.metadata_map.read().await;
 
-        // initialize
-        self.metadata_map = Arc::new(RwLock::new(HashMap::new()));
-        self.client_map = Arc::new(RwLock::new(HashMap::new()));
-        self.shard_ring_map = Arc::new(RwLock::new(HashMap::new()));
-        let (sender, receiver) = unbounded();
+        let client_map = watcher.client_map.read().await;
 
-        match self.discovery_container.discovery.watch(sender, key).await {
-            Ok(_) => (),
-            Err(e) => {
-                return Err(anyhow!(e.to_string()));
-            }
-        }
-
-        let watching = Arc::clone(&self.watching);
-        let unwatch = Arc::clone(&self.unwatch);
-
-        // initialize nodes cache
-        let key = "/";
-        match self.discovery_container.discovery.list(key).await {
-            Ok(kvps) => {
-                for kvp in kvps {
-                    // check key format
-                    let (index_name, shard_name, node_name) = match parse_key(&kvp.key) {
-                        Ok((index_name, shard_name, node_name)) => {
-                            (index_name, shard_name, node_name)
-                        }
-                        Err(e) => {
-                            // ignore keys that do not match the pattern
-                            error!("{}", e.to_string());
-                            continue;
-                        }
-                    };
-
-                    if node_name == "_index_meta" {
-                        // skip index metadata
-                        continue;
-                    }
-
-                    // make metadata
-                    let node_details =
-                        match serde_json::from_slice::<NodeDetails>(kvp.value.as_slice()) {
-                            Ok(node_details) => node_details,
-                            Err(err) => {
-                                error!("failed to parse JSON: error={:?}", err);
-                                continue;
-                            }
-                        };
-
-                    // add client
-                    let address = format!("http://{}", node_details.address.clone());
-                    match IndexServiceClient::connect(address).await {
-                        Ok(client) => {
-                            let mut client_indices = self.client_map.write().await;
-                            if !client_indices.contains_key(&index_name) {
-                                let client_shards = HashMap::new();
-                                client_indices.insert(index_name.clone(), client_shards);
-                            }
-                            if !client_indices
-                                .get(&index_name)
-                                .unwrap()
-                                .contains_key(&shard_name)
-                            {
-                                let client_nodes = HashMap::new();
-                                client_indices
-                                    .get_mut(&index_name)
-                                    .unwrap()
-                                    .insert(shard_name.clone(), client_nodes);
-                            }
-                            client_indices
-                                .get_mut(&index_name)
-                                .unwrap()
-                                .get_mut(&shard_name)
-                                .unwrap()
-                                .insert(node_name.clone(), client);
-                        }
-                        Err(e) => {
-                            error!(
-                                "failed to connect to {}: {}",
-                                &node_details.address,
-                                e.to_string()
-                            );
-                        }
-                    };
-
-                    // add node metadata
-                    let mut metadata_indices = self.metadata_map.write().await;
-                    if !metadata_indices.contains_key(&index_name) {
-                        let metadata_shards = HashMap::new();
-                        metadata_indices.insert(index_name.clone(), metadata_shards);
-                    }
-                    if !metadata_indices
-                        .get(&index_name)
-                        .unwrap()
-                        .contains_key(&shard_name)
-                    {
-                        let metadata_nodes = HashMap::new();
-                        metadata_indices
-                            .get_mut(&index_name)
-                            .unwrap()
-                            .insert(shard_name.clone(), metadata_nodes);
-                    }
-                    metadata_indices
-                        .get_mut(&index_name)
-                        .unwrap()
-                        .get_mut(&shard_name)
-                        .unwrap()
-                        .insert(node_name.clone(), node_details);
-
-                    // add shard ring
-                    let mut ring_indices = self.shard_ring_map.write().await;
-                    if !ring_indices.contains_key(&index_name) {
-                        let ring_nodes: Vec<String> = Vec::new();
-                        let ring_shards: HashRing<String, HighwayBuildHasher> =
-                            HashRing::with_hasher(ring_nodes, 10, HighwayBuildHasher::default());
-                        ring_indices.insert(index_name.clone(), ring_shards);
-                    }
-                    ring_indices
-                        .get_mut(&index_name)
-                        .unwrap()
-                        .add_node(&shard_name);
-                }
-            }
-            Err(err) => {
-                error!("failed to list: error={:?}", err);
-            }
-        };
-
-        let metadata_map = Arc::clone(&self.metadata_map);
-        let client_map = Arc::clone(&self.client_map);
-        let shard_ring_map = Arc::clone(&self.shard_ring_map);
-
-        tokio::spawn(async move {
-            debug!("start cluster watch thread");
-            watching.store(true, Ordering::Relaxed);
-
-            loop {
-                match receiver.try_recv() {
-                    Ok(event) => {
-                        // check key format
-                        let (index_name, shard_name, node_name) = match parse_key(&event.key) {
-                            Ok((index_name, shard_name, node_name)) => {
-                                (index_name, shard_name, node_name)
-                            }
-                            Err(e) => {
-                                // ignore keys that do not match the pattern
-                                debug!("parse error: error={:?}", e);
-                                continue;
-                            }
-                        };
-
-                        if node_name == "_index_meta" {
-                            // skip index metadata
-                            continue;
-                        }
-
-                        match event.event_type {
-                            EventType::Put => {
-                                // make metadata
-                                let node_details = match serde_json::from_slice::<NodeDetails>(
-                                    event.value.as_slice(),
-                                ) {
-                                    Ok(node_details) => node_details,
-                                    Err(err) => {
-                                        error!("failed to parse JSON: error={:?}", err);
-                                        continue;
-                                    }
-                                };
-
-                                // add client
-                                let address = format!("http://{}", node_details.address.clone());
-                                match IndexServiceClient::connect(address).await {
-                                    Ok(client) => {
-                                        let mut client_indices = client_map.write().await;
-                                        if !client_indices.contains_key(&index_name) {
-                                            let client_shards = HashMap::new();
-                                            client_indices
-                                                .insert(index_name.clone(), client_shards);
-                                        }
-                                        if !client_indices
-                                            .get(&index_name)
-                                            .unwrap()
-                                            .contains_key(&shard_name)
-                                        {
-                                            let client_nodes = HashMap::new();
-                                            client_indices
-                                                .get_mut(&index_name)
-                                                .unwrap()
-                                                .insert(shard_name.clone(), client_nodes);
-                                        }
-                                        client_indices
-                                            .get_mut(&index_name)
-                                            .unwrap()
-                                            .get_mut(&shard_name)
-                                            .unwrap()
-                                            .insert(node_name.clone(), client);
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            "failed to connect to {}: {}",
-                                            &node_details.address,
-                                            e.to_string()
-                                        );
-                                    }
-                                };
-
-                                // add node metadata
-                                let mut metadata_indices = metadata_map.write().await;
-                                if !metadata_indices.contains_key(&index_name) {
-                                    let metadata_shards = HashMap::new();
-                                    metadata_indices.insert(index_name.clone(), metadata_shards);
-                                }
-                                if !metadata_indices
-                                    .get(&index_name)
-                                    .unwrap()
-                                    .contains_key(&shard_name)
-                                {
-                                    let metadata_nodes = HashMap::new();
-                                    metadata_indices
-                                        .get_mut(&index_name)
-                                        .unwrap()
-                                        .insert(shard_name.clone(), metadata_nodes);
-                                }
-                                metadata_indices
-                                    .get_mut(&index_name)
-                                    .unwrap()
-                                    .get_mut(&shard_name)
-                                    .unwrap()
-                                    .insert(node_name.clone(), node_details);
-
-                                // add shard ring
-                                let mut ring_indices = shard_ring_map.write().await;
-                                if !ring_indices.contains_key(&index_name) {
-                                    let ring_nodes: Vec<String> = Vec::new();
-                                    let ring_shards: HashRing<String, HighwayBuildHasher> =
-                                        HashRing::with_hasher(
-                                            ring_nodes,
-                                            10,
-                                            HighwayBuildHasher::default(),
-                                        );
-                                    ring_indices.insert(index_name.clone(), ring_shards);
-                                }
-                                ring_indices
-                                    .get_mut(&index_name)
-                                    .unwrap()
-                                    .add_node(&shard_name);
-                            }
-                            EventType::Delete => {
-                                // delete client
-                                let mut client_indices = client_map.write().await;
-                                if client_indices.contains_key(&index_name) {
-                                    if client_indices
-                                        .get(&index_name)
-                                        .unwrap()
-                                        .contains_key(&shard_name)
-                                    {
-                                        if client_indices
-                                            .get(&index_name)
-                                            .unwrap()
-                                            .get(&shard_name)
-                                            .unwrap()
-                                            .contains_key(&node_name)
-                                        {
-                                            client_indices
-                                                .get_mut(&index_name)
-                                                .unwrap()
-                                                .get_mut(&shard_name)
-                                                .unwrap()
-                                                .remove(&node_name);
-                                        }
-                                        if client_indices
-                                            .get(&index_name)
-                                            .unwrap()
-                                            .get(&shard_name)
-                                            .unwrap()
-                                            .len()
-                                            <= 0
-                                        {
-                                            client_indices
-                                                .get_mut(&index_name)
-                                                .unwrap()
-                                                .remove(&shard_name);
-                                        }
-                                    }
-                                    if client_indices.get(&index_name).unwrap().len() <= 0 {
-                                        client_indices.remove(&index_name);
-                                    }
-                                }
-
-                                // delete metdata
-                                let mut metadata_indices = metadata_map.write().await;
-                                if metadata_indices.contains_key(&index_name) {
-                                    if metadata_indices
-                                        .get(&index_name)
-                                        .unwrap()
-                                        .contains_key(&shard_name)
-                                    {
-                                        if metadata_indices
-                                            .get(&index_name)
-                                            .unwrap()
-                                            .get(&shard_name)
-                                            .unwrap()
-                                            .contains_key(&node_name)
-                                        {
-                                            metadata_indices
-                                                .get_mut(&index_name)
-                                                .unwrap()
-                                                .get_mut(&shard_name)
-                                                .unwrap()
-                                                .remove(&node_name);
-                                        }
-                                        if metadata_indices
-                                            .get(&index_name)
-                                            .unwrap()
-                                            .get(&shard_name)
-                                            .unwrap()
-                                            .len()
-                                            <= 0
-                                        {
-                                            metadata_indices
-                                                .get_mut(&index_name)
-                                                .unwrap()
-                                                .remove(&shard_name);
-                                        }
-                                    }
-                                    if metadata_indices.get(&index_name).unwrap().len() <= 0 {
-                                        metadata_indices.remove(&index_name);
-                                    }
-                                }
-
-                                // delete shard ring
-                                let mut ring_indices = shard_ring_map.write().await;
-                                if ring_indices.contains_key(&index_name) {
-                                    ring_indices
-                                        .get_mut(&index_name)
-                                        .unwrap()
-                                        .remove_node(&shard_name);
-                                }
-                            }
-                        };
-                    }
-                    Err(TryRecvError::Disconnected) => {
-                        debug!("channel disconnected");
-                        break;
-                    }
-                    Err(TryRecvError::Empty) => {
-                        if unwatch.load(Ordering::Relaxed) {
-                            debug!("receive a stop signal");
-                            // restore unreceive to false
-                            unwatch.store(false, Ordering::Relaxed);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            watching.store(false, Ordering::Relaxed);
-            debug!("stop cluster watch thread");
-        });
-
-        Ok(())
-    }
-
-    pub async fn unwatch(&mut self) -> Result<(), Error> {
-        if self.discovery_container.discovery.get_type() == NOP_TYPE {
-            debug!("the NOP discovery does not do anything");
-            return Ok(());
-        }
-
-        if !self.watching.load(Ordering::Relaxed) {
-            let msg = "watcher is not running";
-            warn!("{}", msg);
-            return Err(anyhow!(msg));
-        }
-
-        match self.discovery_container.discovery.unwatch().await {
-            Ok(_) => (),
-            Err(e) => {
-                return Err(anyhow!(e.to_string()));
-            }
-        }
-
-        self.unwatch.store(true, Ordering::Relaxed);
-
-        Ok(())
-    }
-
-    pub async fn metadata(
-        &mut self,
-        index_name: Option<&str>,
-        shard_name: Option<&str>,
-        node_name: Option<&str>,
-    ) -> Result<HashMap<String, HashMap<String, HashMap<String, NodeDetails>>>> {
-        let indices = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &indices);
-
-        let mut metadata = HashMap::new();
-        match index_name {
-            Some(index) => {
-                if indices.contains_key(index) {
-                    metadata.insert(index.to_string(), HashMap::new());
-                    let shards = indices.get(index).unwrap();
-                    match shard_name {
-                        Some(shard) => {
-                            if shards.contains_key(shard) {
-                                metadata
-                                    .get_mut(index)
-                                    .unwrap()
-                                    .insert(shard.to_string(), HashMap::new());
-                                let nodes = shards.get(shard).unwrap();
-                                match node_name {
-                                    Some(node) => {
-                                        if nodes.contains_key(node) {
-                                            metadata
-                                                .get_mut(index)
-                                                .unwrap()
-                                                .get_mut(shard)
-                                                .unwrap()
-                                                .insert(
-                                                    node.to_string(),
-                                                    nodes.get(node).unwrap().clone(),
-                                                );
-                                        }
-                                    }
-                                    None => {
-                                        metadata
-                                            .get_mut(index)
-                                            .unwrap()
-                                            .insert(shard.to_string(), HashMap::new());
-                                        for (node, _metadata) in nodes.iter() {
-                                            metadata
-                                                .get_mut(index)
-                                                .unwrap()
-                                                .get_mut(shard)
-                                                .unwrap()
-                                                .insert(node.to_string(), _metadata.clone());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        None => {
-                            metadata.insert(index.to_string(), HashMap::new());
-                            for (shard, nodes) in shards.iter() {
-                                metadata
-                                    .get_mut(index)
-                                    .unwrap()
-                                    .insert(shard.to_string(), HashMap::new());
-                                for (node, _metadata) in nodes.iter() {
-                                    metadata
-                                        .get_mut(index)
-                                        .unwrap()
-                                        .get_mut(shard)
-                                        .unwrap()
-                                        .insert(node.to_string(), _metadata.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            None => {
-                for (index, shards) in indices.iter() {
-                    metadata.insert(index.to_string(), HashMap::new());
-                    for (shard, nodes) in shards.iter() {
-                        metadata
-                            .get_mut(index)
-                            .unwrap()
-                            .insert(shard.to_string(), HashMap::new());
-                        for (node, _metadata) in nodes.iter() {
-                            metadata
-                                .get_mut(index)
-                                .unwrap()
-                                .get_mut(shard)
-                                .unwrap()
-                                .insert(node.to_string(), _metadata.clone());
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(metadata)
-    }
-
-    pub async fn get(&mut self, id: &str, index_name: &str) -> Result<Vec<u8>> {
-        let metadata = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &metadata);
-
-        let client_map = self.client_map.read().await;
-
-        let mut handles: Vec<JoinHandle<Result<Vec<u8>, Error>>> = Vec::new();
         let metadata_shards = match metadata.get(index_name) {
             Some(shards) => shards,
             None => return Err(anyhow!("{} does not exist", index_name)),
         };
 
+        let mut handles: Vec<JoinHandle<Result<Vec<u8>, Error>>> = Vec::new();
         for (shard_name, m_nodes) in metadata_shards {
             let mut primary = "";
             let mut replicas: Vec<&str> = Vec::new();
@@ -640,7 +109,7 @@ impl Client {
                         Some(client_shards) => match client_shards.get(&shard_name) {
                             Some(client_nodes) => match client_nodes.get(&node_name) {
                                 Some(client) => {
-                                    let req = tonic::Request::new(GetReq { id });
+                                    let req = tonic::Request::new(GetReq { index_name, id });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.get(req).await {
                                         Ok(resp) => {
@@ -694,32 +163,33 @@ impl Client {
         }
     }
 
-    pub async fn put(&mut self, doc: Vec<u8>, index_name: &str, id_field: &str) -> Result<()> {
+    pub async fn put(&self, index_name: &str, route_field_name: &str, doc: Vec<u8>) -> Result<()> {
         let value: Value = match serde_json::from_slice::<Value>(&doc.as_slice()) {
             Ok(value) => value,
             Err(e) => {
                 return Err(Error::new(e));
             }
         };
-        let id = match value.as_object().unwrap()[id_field].as_str() {
-            Some(id) => id,
+        let route_field_value = match value.as_object().unwrap()[route_field_name].as_str() {
+            Some(route_field_value) => route_field_value,
             None => {
-                return Err(anyhow!("{} does not exist", id_field));
+                return Err(anyhow!("{} does not exist", route_field_name));
             }
         };
-        debug!("id field value is {:?}", id);
+        debug!("route field value is {:?}", route_field_value);
 
-        let ring_indices = self.shard_ring_map.read().await;
+        let watcher_arc = Arc::clone(&self.watcher);
+        let watcher = watcher_arc.read().await;
+
+        let ring_indices = watcher.shard_ring_map.read().await;
         let shard_ring = match ring_indices.get(index_name) {
             Some(shard_ring) => shard_ring,
             None => return Err(anyhow!("{} does not exist", index_name)),
         };
-        let shard_name = shard_ring.get_node(id.to_string()).unwrap();
+        let shard_name = shard_ring.get_node(route_field_value.to_string()).unwrap();
         debug!("destination shard: {:?}", shard_name);
 
-        let metadata = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &metadata);
-
+        let metadata = watcher.metadata_map.read().await;
         let metadata_nodes = match metadata.get(index_name) {
             Some(shards) => match shards.get(shard_name) {
                 Some(nodes) => nodes,
@@ -739,7 +209,7 @@ impl Client {
         }
         debug!("primary node is {:?}", node_name);
 
-        let client_indices = self.client_map.read().await;
+        let client_indices = watcher.client_map.read().await;
         let client = match client_indices.get(index_name) {
             Some(client_shards) => match client_shards.get(shard_name) {
                 Some(client_nodes) => match client_nodes.get(node_name) {
@@ -752,25 +222,29 @@ impl Client {
         };
 
         let mut client: IndexServiceClient<Channel> = client.into();
-        let req = tonic::Request::new(SetReq { doc });
+        let req = tonic::Request::new(SetReq {
+            index_name: index_name.to_string(),
+            route_field_name: route_field_name.to_string(),
+            doc,
+        });
         match client.set(req).await {
             Ok(_resp) => Ok(()),
             Err(e) => Err(Error::new(e)),
         }
     }
 
-    pub async fn delete(&mut self, id: &str, index_name: &str) -> Result<()> {
-        let metadata = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &metadata);
+    pub async fn delete(&self, index_name: &str, id: &str) -> Result<()> {
+        let watcher_arc = Arc::clone(&self.watcher);
+        let watcher = watcher_arc.read().await;
 
-        let client_map = self.client_map.read().await;
-
-        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let metadata = watcher.metadata_map.read().await;
         let metadata_shards = match metadata.get(index_name) {
             Some(shards) => shards,
             None => return Err(anyhow!("{} does not exist", index_name)),
         };
 
+        let client_map = watcher.client_map.read().await;
+        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
         for (shard_name, nodes) in metadata_shards {
             let mut node_name = "";
             for (node, node_details) in nodes {
@@ -796,7 +270,10 @@ impl Client {
                         Some(client_shards) => match client_shards.get(&shard_name) {
                             Some(client_nodes) => match client_nodes.get(&node_name) {
                                 Some(client) => {
-                                    let req = tonic::Request::new(DeleteReq { id });
+                                    let req = tonic::Request::new(DeleteReq {
+                                        index_name: index_name.clone(),
+                                        id,
+                                    });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.delete(req).await {
                                         Ok(_resp) => Ok(()),
@@ -839,17 +316,15 @@ impl Client {
     }
 
     pub async fn bulk_put(
-        &mut self,
-        docs: Vec<Vec<u8>>,
+        &self,
         index_name: &str,
-        id_field: &str,
+        route_field_name: &str,
+        docs: Vec<Vec<u8>>,
     ) -> Result<()> {
-        let metadata = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &metadata);
+        let watcher_arc = Arc::clone(&self.watcher);
+        let watcher = watcher_arc.read().await;
 
-        let client_map = self.client_map.read().await;
-
-        let ring_indices = self.shard_ring_map.read().await;
+        let ring_indices = watcher.shard_ring_map.read().await;
         let shard_ring = match ring_indices.get(index_name) {
             Some(shard_ring) => shard_ring,
             None => return Err(anyhow!("{} does not exist", index_name)),
@@ -864,15 +339,15 @@ impl Client {
                     return Err(Error::new(e));
                 }
             };
-            let id = match value.as_object().unwrap()[id_field].as_str() {
-                Some(id) => id,
+            let route_field_value = match value.as_object().unwrap()[route_field_name].as_str() {
+                Some(route_field_value) => route_field_value,
                 None => {
-                    return Err(anyhow!("{} does not exist", id_field));
+                    return Err(anyhow!("{} does not exist", route_field_name));
                 }
             };
-            debug!("id field value is {:?}", id);
+            debug!("route field value is {:?}", route_field_value);
 
-            let shard_name = shard_ring.get_node(id.to_string()).unwrap();
+            let shard_name = shard_ring.get_node(route_field_value.to_string()).unwrap();
             debug!("destination shard: {:?}", shard_name);
 
             if !docs_map.contains_key(shard_name) {
@@ -883,6 +358,8 @@ impl Client {
         }
 
         let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let metadata = watcher.metadata_map.read().await;
+        let client_map = watcher.client_map.read().await;
         for (shard_name, docs) in docs_map {
             let metadata_nodes = match metadata.get(index_name) {
                 Some(shards) => match shards.get(&shard_name) {
@@ -907,6 +384,7 @@ impl Client {
             let index_name = index_name.to_string();
             let shard_name = shard_name.to_string();
             let node_name = node_name.to_string();
+            let route_field_name = route_field_name.to_string();
             let handle = tokio::spawn(async move {
                 if node_name.len() <= 0 {
                     Err(anyhow!("there is no available primary node"))
@@ -915,7 +393,11 @@ impl Client {
                         Some(client_shards) => match client_shards.get(&shard_name) {
                             Some(client_nodes) => match client_nodes.get(&node_name) {
                                 Some(client) => {
-                                    let req = tonic::Request::new(BulkSetReq { docs });
+                                    let req = tonic::Request::new(BulkSetReq {
+                                        index_name: index_name.clone(),
+                                        route_field_name: route_field_name.clone(),
+                                        docs,
+                                    });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.bulk_set(req).await {
                                         Ok(_resp) => Ok(()),
@@ -957,18 +439,18 @@ impl Client {
         }
     }
 
-    pub async fn bulk_delete(&mut self, ids: Vec<&str>, index_name: &str) -> Result<()> {
-        let metadata = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &metadata);
+    pub async fn bulk_delete(&self, index_name: &str, ids: Vec<&str>) -> Result<()> {
+        let watcher_arc = Arc::clone(&self.watcher);
+        let watcher = watcher_arc.read().await;
 
-        let client_map = self.client_map.read().await;
-
-        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let metadata = watcher.metadata_map.read().await;
         let metadata_shards = match metadata.get(index_name) {
             Some(shards) => shards,
             None => return Err(anyhow!("{} does not exist", index_name)),
         };
 
+        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let client_map = watcher.client_map.read().await;
         for (shard_name, nodes) in metadata_shards {
             let mut node_name = "";
             for (node, node_details) in nodes {
@@ -994,7 +476,10 @@ impl Client {
                         Some(client_shards) => match client_shards.get(&shard_name) {
                             Some(client_nodes) => match client_nodes.get(&node_name) {
                                 Some(client) => {
-                                    let req = tonic::Request::new(BulkDeleteReq { ids });
+                                    let req = tonic::Request::new(BulkDeleteReq {
+                                        index_name: index_name.clone(),
+                                        ids,
+                                    });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.bulk_delete(req).await {
                                         Ok(_resp) => Ok(()),
@@ -1036,17 +521,17 @@ impl Client {
         }
     }
 
-    pub async fn commit(&mut self, index_name: &str) -> Result<()> {
-        let metadata = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &metadata);
+    pub async fn commit(&self, index_name: &str) -> Result<()> {
+        let watcher_arc = Arc::clone(&self.watcher);
+        let watcher = watcher_arc.read().await;
 
-        let client_map = self.client_map.read().await;
-
+        let metadata = watcher.metadata_map.read().await;
         let metadata_shards = match metadata.get(index_name) {
             Some(shards) => shards,
             None => return Err(anyhow!("{} does not exist", index_name)),
         };
 
+        let client_map = watcher.client_map.read().await;
         let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
         for (shard_name, nodes) in metadata_shards {
             let mut node_name = "";
@@ -1072,7 +557,9 @@ impl Client {
                         Some(client_shards) => match client_shards.get(&shard_name) {
                             Some(client_nodes) => match client_nodes.get(&node_name) {
                                 Some(client) => {
-                                    let req = tonic::Request::new(CommitReq {});
+                                    let req = tonic::Request::new(CommitReq {
+                                        index_name: index_name.clone(),
+                                    });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.commit(req).await {
                                         Ok(_resp) => Ok(()),
@@ -1114,18 +601,18 @@ impl Client {
         }
     }
 
-    pub async fn rollback(&mut self, index_name: &str) -> Result<()> {
-        let metadata = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &metadata);
+    pub async fn rollback(&self, index_name: &str) -> Result<()> {
+        let watcher_arc = Arc::clone(&self.watcher);
+        let watcher = watcher_arc.read().await;
 
-        let client_map = self.client_map.read().await;
-
-        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let metadata = watcher.metadata_map.read().await;
         let metadata_shards = match metadata.get(index_name) {
             Some(shards) => shards,
             None => return Err(anyhow!("{} does not exist", index_name)),
         };
 
+        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let client_map = watcher.client_map.read().await;
         for (shard_name, nodes) in metadata_shards {
             let mut node_name = "";
             for (node, node_details) in nodes {
@@ -1150,7 +637,9 @@ impl Client {
                         Some(client_shards) => match client_shards.get(&shard_name) {
                             Some(client_nodes) => match client_nodes.get(&node_name) {
                                 Some(client) => {
-                                    let req = tonic::Request::new(RollbackReq {});
+                                    let req = tonic::Request::new(RollbackReq {
+                                        index_name: index_name.clone(),
+                                    });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.rollback(req).await {
                                         Ok(_resp) => Ok(()),
@@ -1192,18 +681,18 @@ impl Client {
         }
     }
 
-    pub async fn merge(&mut self, index_name: &str) -> Result<()> {
-        let metadata = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &metadata);
+    pub async fn merge(&self, index_name: &str) -> Result<()> {
+        let watcher_arc = Arc::clone(&self.watcher);
+        let watcher = watcher_arc.read().await;
 
-        let client_map = self.client_map.read().await;
-
-        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let metadata = watcher.metadata_map.read().await;
         let metadata_shards = match metadata.get(index_name) {
             Some(shards) => shards,
             None => return Err(anyhow!("{} does not exist", index_name)),
         };
 
+        let mut handles: Vec<JoinHandle<Result<(), Error>>> = Vec::new();
+        let client_map = watcher.client_map.read().await;
         for (shard_name, nodes) in metadata_shards {
             let mut node_name = "";
             for (node, node_details) in nodes {
@@ -1228,7 +717,9 @@ impl Client {
                         Some(client_shards) => match client_shards.get(&shard_name) {
                             Some(client_nodes) => match client_nodes.get(&node_name) {
                                 Some(client) => {
-                                    let req = tonic::Request::new(MergeReq {});
+                                    let req = tonic::Request::new(MergeReq {
+                                        index_name: index_name.clone(),
+                                    });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.merge(req).await {
                                         Ok(_resp) => Ok(()),
@@ -1270,19 +761,18 @@ impl Client {
         }
     }
 
-    pub async fn search(&mut self, request: Vec<u8>, index_name: &str) -> Result<Vec<u8>> {
-        let metadata = self.metadata_map.read().await;
-        debug!("metadata: {:?}", &metadata);
+    pub async fn search(&self, index_name: &str, request: Vec<u8>) -> Result<Vec<u8>> {
+        let watcher_arc = Arc::clone(&self.watcher);
+        let watcher = watcher_arc.read().await;
 
-        let client_map = self.client_map.read().await;
-
+        let metadata = watcher.metadata_map.read().await;
         let metadata_shards = match metadata.get(index_name) {
             Some(shards) => shards,
             None => return Err(anyhow!("{} does not exist", index_name)),
         };
 
         let mut handles: Vec<JoinHandle<Result<Vec<u8>, Error>>> = Vec::new();
-
+        let client_map = watcher.client_map.read().await;
         for (shard_name, m_nodes) in metadata_shards {
             let mut primary = "";
             let mut replicas: Vec<&str> = Vec::new();
@@ -1324,7 +814,10 @@ impl Client {
                         Some(client_shards) => match client_shards.get(&shard_name) {
                             Some(client_nodes) => match client_nodes.get(&node_name) {
                                 Some(client) => {
-                                    let req = tonic::Request::new(SearchReq { request });
+                                    let req = tonic::Request::new(SearchReq {
+                                        index_name: index_name.clone(),
+                                        request,
+                                    });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.search(req).await {
                                         Ok(resp) => {
@@ -1353,7 +846,6 @@ impl Client {
             .with_context(|| "failed to join handles")?;
         let resp_cnt = responses.len();
 
-        // TODO: merge the search results of each shard
         let mut ret_result = SearchResult {
             count: 0,
             docs: Vec::new(),
@@ -1436,6 +928,353 @@ impl Client {
         } else {
             let e = errs.get(0).unwrap().clone();
             Err(anyhow!("{}", e.to_string()))
+        }
+    }
+}
+
+#[tonic::async_trait]
+impl ProtoDispatcherService for DispatcherService {
+    async fn readiness(
+        &self,
+        _request: Request<ReadinessReq>,
+    ) -> Result<Response<ReadinessReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["readiness"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["readiness"])
+            .start_timer();
+
+        let state = State::Ready as i32;
+
+        let reply = ReadinessReply { state };
+
+        timer.observe_duration();
+
+        Ok(Response::new(reply))
+    }
+
+    async fn watch(&self, _request: Request<WatchReq>) -> Result<Response<WatchReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["watch"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["watch"])
+            .start_timer();
+
+        let watcher_arc = Arc::clone(&self.watcher);
+        let mut watcher = watcher_arc.write().await;
+        match watcher.watch().await {
+            Ok(_) => (),
+            Err(err) => {
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to watch: error = {:?}", err),
+                ));
+            }
+        }
+
+        let reply = WatchReply {};
+
+        timer.observe_duration();
+
+        Ok(Response::new(reply))
+    }
+
+    async fn unwatch(
+        &self,
+        _request: Request<UnwatchReq>,
+    ) -> Result<Response<UnwatchReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["unwatch"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["unwatch"])
+            .start_timer();
+
+        let watcher_arc = Arc::clone(&self.watcher);
+        let mut watcher = watcher_arc.write().await;
+        match watcher.unwatch().await {
+            Ok(_) => (),
+            Err(err) => {
+                timer.observe_duration();
+
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("failed to unwatch: error = {:?}", err),
+                ));
+            }
+        }
+
+        let reply = UnwatchReply {};
+
+        timer.observe_duration();
+
+        Ok(Response::new(reply))
+    }
+
+    async fn get(&self, request: Request<GetReq>) -> Result<Response<GetReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["get"]).inc();
+        let timer = REQUEST_HISTOGRAM.with_label_values(&["get"]).start_timer();
+
+        info!("get {:?}", request);
+
+        let req = request.into_inner();
+
+        match self.get(&req.index_name, &req.id).await {
+            Ok(resp) => {
+                let reply = GetReply { doc: resp };
+
+                timer.observe_duration();
+
+                Ok(Response::new(reply))
+            }
+            Err(e) => {
+                timer.observe_duration();
+
+                Err(Status::new(
+                    Code::Internal,
+                    format!("failed to get document: error = {:?}", e),
+                ))
+            }
+        }
+    }
+
+    async fn set(&self, request: Request<SetReq>) -> Result<Response<SetReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["set"]).inc();
+        let timer = REQUEST_HISTOGRAM.with_label_values(&["set"]).start_timer();
+
+        info!("put {:?}", request);
+
+        let req = request.into_inner();
+
+        match self
+            .put(&req.index_name, &req.route_field_name, req.doc)
+            .await
+        {
+            Ok(_) => {
+                let reply = SetReply {};
+
+                timer.observe_duration();
+                Ok(Response::new(reply))
+            }
+            Err(e) => {
+                timer.observe_duration();
+
+                Err(Status::new(
+                    Code::InvalidArgument,
+                    format!("failed to set document: err = {:?}", e),
+                ))
+            }
+        }
+    }
+
+    async fn delete(&self, request: Request<DeleteReq>) -> Result<Response<DeleteReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["delete"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["delete"])
+            .start_timer();
+
+        info!("delete {:?}", request);
+
+        let req = request.into_inner();
+
+        match self.delete(&req.index_name, &req.id).await {
+            Ok(_) => {
+                let reply = DeleteReply {};
+
+                timer.observe_duration();
+                Ok(Response::new(reply))
+            }
+            Err(e) => {
+                timer.observe_duration();
+
+                Err(Status::new(
+                    Code::InvalidArgument,
+                    format!("failed to delete document: err = {:?}", e),
+                ))
+            }
+        }
+    }
+
+    async fn bulk_set(
+        &self,
+        request: Request<BulkSetReq>,
+    ) -> Result<Response<BulkSetReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["bulk_set"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["bulk_set"])
+            .start_timer();
+
+        info!("bulk_put {:?}", request);
+
+        let req = request.into_inner();
+
+        match self
+            .bulk_put(&req.index_name, &req.route_field_name, req.docs)
+            .await
+        {
+            Ok(_) => {
+                let reply = BulkSetReply {};
+
+                timer.observe_duration();
+                Ok(Response::new(reply))
+            }
+            Err(e) => {
+                timer.observe_duration();
+
+                Err(Status::new(
+                    Code::InvalidArgument,
+                    format!("failed to set documents in bulk: err = {:?}", e),
+                ))
+            }
+        }
+    }
+
+    async fn bulk_delete(
+        &self,
+        request: Request<BulkDeleteReq>,
+    ) -> Result<Response<BulkDeleteReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["bulk_delete"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["bulk_delete"])
+            .start_timer();
+
+        info!("bulk_delete {:?}", request);
+
+        let req = request.into_inner();
+
+        let ids = req.ids.iter().map(|id| id.as_str()).collect();
+        match self.bulk_delete(&req.index_name, ids).await {
+            Ok(_) => {
+                let reply = BulkDeleteReply {};
+
+                timer.observe_duration();
+                Ok(Response::new(reply))
+            }
+            Err(e) => {
+                timer.observe_duration();
+
+                Err(Status::new(
+                    Code::InvalidArgument,
+                    format!("failed to delete documents in bulk: err = {:?}", e),
+                ))
+            }
+        }
+    }
+
+    async fn commit(&self, request: Request<CommitReq>) -> Result<Response<CommitReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["commit"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["commit"])
+            .start_timer();
+
+        info!("commit {:?}", request);
+
+        let req = request.into_inner();
+
+        match self.commit(&req.index_name).await {
+            Ok(_) => {
+                let reply = CommitReply {};
+
+                timer.observe_duration();
+
+                Ok(Response::new(reply))
+            }
+            Err(e) => {
+                timer.observe_duration();
+
+                Err(Status::new(
+                    Code::Internal,
+                    format!("failed to commit index: error = {:?}", e),
+                ))
+            }
+        }
+    }
+
+    async fn rollback(
+        &self,
+        request: Request<RollbackReq>,
+    ) -> Result<Response<RollbackReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["rollback"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["rollback"])
+            .start_timer();
+
+        info!("rollback {:?}", request);
+
+        let req = request.into_inner();
+
+        match self.rollback(&req.index_name).await {
+            Ok(_) => {
+                let reply = RollbackReply {};
+
+                timer.observe_duration();
+
+                Ok(Response::new(reply))
+            }
+            Err(e) => {
+                timer.observe_duration();
+
+                Err(Status::new(
+                    Code::Internal,
+                    format!("failed to rollback index: error = {:?}", e),
+                ))
+            }
+        }
+    }
+
+    async fn merge(&self, request: Request<MergeReq>) -> Result<Response<MergeReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["merge"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["merge"])
+            .start_timer();
+
+        info!("merge {:?}", request);
+
+        let req = request.into_inner();
+
+        match self.merge(&req.index_name).await {
+            Ok(_) => {
+                let reply = MergeReply {};
+
+                timer.observe_duration();
+
+                Ok(Response::new(reply))
+            }
+            Err(e) => {
+                timer.observe_duration();
+
+                Err(Status::new(
+                    Code::Internal,
+                    format!("failed to merge index: error = {:?}", e),
+                ))
+            }
+        }
+    }
+
+    async fn search(&self, request: Request<SearchReq>) -> Result<Response<SearchReply>, Status> {
+        REQUEST_COUNTER.with_label_values(&["search"]).inc();
+        let timer = REQUEST_HISTOGRAM
+            .with_label_values(&["search"])
+            .start_timer();
+
+        info!("search {:?}", request);
+
+        let req = request.into_inner();
+
+        match self.search(&req.index_name, req.request).await {
+            Ok(result) => {
+                let reply = SearchReply { result };
+
+                timer.observe_duration();
+
+                Ok(Response::new(reply))
+            }
+            Err(e) => {
+                timer.observe_duration();
+
+                Err(Status::new(
+                    Code::Internal,
+                    format!("failed to search index: error = {:?}", e),
+                ))
+            }
         }
     }
 }

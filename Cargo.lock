@@ -2032,32 +2032,11 @@ dependencies = [
  "num_cpus",
  "phalanx-common",
  "phalanx-discovery",
+ "phalanx-dispatcher",
  "phalanx-index",
  "phalanx-overseer",
  "phalanx-proto",
  "phalanx-storage",
- "serde_json",
- "tokio",
- "tonic",
-]
-
-[[package]]
-name = "phalanx-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "crossbeam 0.8.0",
- "futures",
- "hash_ring",
- "highway",
- "lazy_static",
- "log",
- "phalanx-common",
- "phalanx-discovery",
- "phalanx-index",
- "phalanx-proto",
- "rand 0.7.3",
- "regex",
  "serde_json",
  "tokio",
  "tonic",
@@ -2086,6 +2065,30 @@ dependencies = [
  "log",
  "prometheus",
  "serde",
+ "serde_json",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
+name = "phalanx-dispatcher"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossbeam 0.8.0",
+ "futures",
+ "hash_ring",
+ "highway",
+ "hyper",
+ "lazy_static",
+ "log",
+ "phalanx-common",
+ "phalanx-discovery",
+ "phalanx-index",
+ "phalanx-proto",
+ "prometheus",
+ "rand 0.7.3",
+ "regex",
  "serde_json",
  "tokio",
  "tonic",

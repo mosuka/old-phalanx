@@ -319,38 +319,68 @@ $ phalanx index --address=0.0.0.0 \
                 --minio-endpoint=http://127.0.0.1:9000
 ```
 
-You can see the cluster information by opening a following URL in your browser and connecting to `etcd:2379`:
+#### Start dispatcher node
 
-http://localhost:8080/etcdkeeper/
-
-If you run the above commands, `/phalanx/index0/shard0/node0.json` will be as follows:
-
-```json
-{"address":"0.0.0.0:5000","state":2,"role":2}
-```
-
-above JSON indicates that it is the primary index node.
-
-#### Index documents
-
-Index document to primary index node (0.0.0.0:5000) with the following command:
+A dispatcher is a node that can perform distributed search and distributed indexing.
+You can start dispatcher node with the following command:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | @json' ./examples/bulk_put.jsonl | jq -s -c '{ docs:. }')" -plaintext 0.0.0.0:5000 phalanx.IndexService/BulkSet
+$ phalanx dispatcher --address=0.0.0.0 \
+                     --grpc-port=5200 \
+                     --http-port=8200 \
+                     --discovery-type=etcd \
+                     --discovery-root=/phalanx \
+                     --etcd-endpoints=http://127.0.0.1:2379
 ```
 
-Then commit index with the following command:
+#### Update index via dispatcher node
 
+Update index with the following commands.
+
+Index document:
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phalanx.IndexService/Commit
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | {"index_name": "index0", "route_field_name": "id", "doc": @base64}' ./examples/doc_1.json)" -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Set
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Commit
 ```
+
+Delete document:
+```shell script
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0", "id": "1" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Delete
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Commit
+```
+
+Index documents in bulk:
+```shell script
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq -c '. | @base64' ./examples/bulk_put.jsonl | jq -s -c '{ "index_name": "index0", "route_field_name": "id", "docs": . }')" -plaintext 0.0.0.0:5200 phalanx.DispatcherService/BulkSet
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Commit
+```
+
+Delete documents in bulk:
+```shell script
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq '. | @json' ./examples/bulk_delete.txt  | jq -s -c '{ "index_name": "index0", "ids": . }')" -plaintext 0.0.0.0:5200 phalanx.DispatcherService/BulkDelete
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Commit
+```
+
+Rollback updates:
+```shell script
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Rollback
+```
+
+Merge index:
+```shell script
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Merge
+```
+
+#### Retrieve documents via dispatcher node
 
 If the commit is successful, the index will be saved to object storage. You can see the uploaded index at the following URL:
-http://localhost:9000/minio/phalanx/index0/shard0/
+http://localhost:9000/minio/phalanx/
 
 The replica node detects that the index has been updated and downloads the latest index from object storage.
-You can get document from index replica node (0.0.0.0:5001) with the following command:
+You can get document from index via dispatcher node with the following command:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "id": "1" }' -plaintext 0.0.0.0:5001 phalanx.IndexService/Get | jq -r '.doc' | jq .
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0", "id": "1" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Get | jq -r '.doc | @base64d' | jq . 
+
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq '. | @base64' ./examples/search_request.json  | jq -s -c '{ "index_name": "index0", "request":. }')" -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Search | jq -r '.result | @base64d' | jq .
 ```

@@ -1,5 +1,5 @@
 [package]
-name = "phalanx-client"
+name = "phalanx-dispatcher"
 version = "0.1.0"
 authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
 edition = "2018"
@@ -10,13 +10,15 @@ crossbeam = "0.8"
 futures = "0.3"
 hash_ring = "0.2"
 highway = "0.6"
+hyper = "0.13"
 lazy_static = "1.4"
 log = "0.4"
+prometheus = "0.10"
 rand = "0.7"
 regex = "1.3"
 serde_json = "1.0"
-tokio = { version = "0.2", features = [ "full" ] }
 tonic = "0.3"
+tokio = { version = "0.2", features = [ "full" ] }
 
 phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
 phalanx-discovery = { version = "0.1.0", path = "../phalanx-discovery" }
