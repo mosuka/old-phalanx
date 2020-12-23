@@ -17,7 +17,7 @@ tag:
 	git push origin v$(PHALANX_VERSION)
 
 docker-build:
-	docker build --tag=mosuka/phalanx:latest --file=Dockerfile --build-arg="PHALANX_VERSION=$(PHALANX_VERSION)" .
+	docker build --tag=mosuka/phalanx:latest --file=Dockerfile .
 	docker tag mosuka/phalanx:latest mosuka/phalanx:$(PHALANX_VERSION)
 
 docker-push:

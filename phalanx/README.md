@@ -199,143 +199,23 @@ $ grpcurl -proto phalanx-proto/proto/phalanx.proto -plaintext 0.0.0.0:5000 phala
 ```
 
 
-### Start in cluster mode
+### Start cluster with Docker compose
 
-Phalanx in cluster mode requires [etcd](https://etcd.io/) for service discovery and [MinIO](https://min.io/) for remote index storage.
-Dependent components for testing must be started as following:
-
-```shell script
-$ docker-compose up etcd etcdkeeper minio
-```
-
-#### Start overseer node
-
-The overseer node probes all nodes in the cluster and updates their roles.
-You can start overseer node with the following command:
+The sample cluster can be started with `docker-compose.yml`. This file will also launch components such as [etcd](https://etcd.io/), which is required for the service discovery backend, and [MinIO](https://min.io/), which is required for the storage backend.
+You can start a cluster with the following command;
 
 ```shell script
-$ phalanx overseer --address=0.0.0.0 \
-                   --grpc-port=5100 \
-                   --http-port=8100 \
-                   --discovery-type=etcd \
-                   --discovery-root=/phalanx \
-                   --etcd-endpoints=http://127.0.0.1:2379 \
-                   --probe-interval=100
+$ docker-compose up
 ```
 
-#### Start index node 
+#### Make a request via dispatcher node
 
-You can start index nodes with the following command:
+In cluster mode, make a request to the dispatcher node. The dispatcher node will dispatch the query and document to the appropriate index node.
 
+Get document:
 ```shell script
-$ phalanx index --address=0.0.0.0 \
-                --grpc-port=5000 \
-                --http-port=8000 \
-                --index-directory=${HOME}/tmp/phalanx0 \
-                --schema-file=./etc/schema.json \
-                --tokenizer-file=./etc/tokenizer.json \
-                --indexer-threads=1 \
-                --indexer-memory-size=500000000 \
-                --unique-id-field=id \
-                --index-name=index0 \
-                --shard-name=shard0 \
-                --node-name=node0 \
-                --discovery-type=etcd \
-                --discovery-root=/phalanx \
-                --etcd-endpoints=http://127.0.0.1:2379 \
-                --storage-type=minio \
-                --storage-bucket=phalanx \
-                --minio-access-key=minioadmin \
-                --minio-secret-key=minioadmin \
-                --minio-endpoint=http://127.0.0.1:9000
+$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0", "id": "1" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Get | jq -r '.doc | @base64d' | jq .
 ```
-
-```shell script
-$ phalanx index --address=0.0.0.0 \
-                --grpc-port=5001 \
-                --http-port=8001 \
-                --index-directory=${HOME}/tmp/phalanx1 \
-                --schema-file=./etc/schema.json \
-                --tokenizer-file=./etc/tokenizer.json \
-                --indexer-threads=1 \
-                --indexer-memory-size=500000000 \
-                --unique-id-field=id \
-                --index-name=index0 \
-                --shard-name=shard0 \
-                --node-name=node1 \
-                --discovery-type=etcd \
-                --discovery-root=/phalanx \
-                --etcd-endpoints=http://127.0.0.1:2379 \
-                --storage-type=minio \
-                --storage-bucket=phalanx \
-                --minio-access-key=minioadmin \
-                --minio-secret-key=minioadmin \
-                --minio-endpoint=http://127.0.0.1:9000
-```
-
-```shell script
-$ phalanx index --address=0.0.0.0 \
-                --grpc-port=5002 \
-                --http-port=8002 \
-                --index-directory=${HOME}/tmp/phalanx2 \
-                --schema-file=./etc/schema.json \
-                --tokenizer-file=./etc/tokenizer.json \
-                --indexer-threads=1 \
-                --indexer-memory-size=500000000 \
-                --unique-id-field=id \
-                --index-name=index0 \
-                --shard-name=shard1 \
-                --node-name=node2 \
-                --discovery-type=etcd \
-                --discovery-root=/phalanx \
-                --etcd-endpoints=http://127.0.0.1:2379 \
-                --storage-type=minio \
-                --storage-bucket=phalanx \
-                --minio-access-key=minioadmin \
-                --minio-secret-key=minioadmin \
-                --minio-endpoint=http://127.0.0.1:9000
-```
-
-```shell script
-$ phalanx index --address=0.0.0.0 \
-                --grpc-port=5003 \
-                --http-port=8003 \
-                --index-directory=${HOME}/tmp/phalanx3 \
-                --schema-file=./etc/schema.json \
-                --tokenizer-file=./etc/tokenizer.json \
-                --indexer-threads=1 \
-                --indexer-memory-size=500000000 \
-                --unique-id-field=id \
-                --index-name=index0 \
-                --shard-name=shard1 \
-                --node-name=node3 \
-                --discovery-type=etcd \
-                --discovery-root=/phalanx \
-                --etcd-endpoints=http://127.0.0.1:2379 \
-                --storage-type=minio \
-                --storage-bucket=phalanx \
-                --minio-access-key=minioadmin \
-                --minio-secret-key=minioadmin \
-                --minio-endpoint=http://127.0.0.1:9000
-```
-
-#### Start dispatcher node
-
-A dispatcher is a node that can perform distributed search and distributed indexing.
-You can start dispatcher node with the following command:
-
-```shell script
-$ phalanx dispatcher --address=0.0.0.0 \
-                     --grpc-port=5200 \
-                     --http-port=8200 \
-                     --discovery-type=etcd \
-                     --discovery-root=/phalanx \
-                     --etcd-endpoints=http://127.0.0.1:2379
-```
-
-#### Update index via dispatcher node
-
-Update index with the following commands.
 
 Index document:
 ```shell script
@@ -371,16 +251,8 @@ Merge index:
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Merge
 ```
 
-#### Retrieve documents via dispatcher node
-
-If the commit is successful, the index will be saved to object storage. You can see the uploaded index at the following URL:
-http://localhost:9000/minio/phalanx/
-
-The replica node detects that the index has been updated and downloads the latest index from object storage.
-You can get document from index via dispatcher node with the following command:
+Search documents:
 
 ```shell script
-$ grpcurl -proto phalanx-proto/proto/phalanx.proto -d '{ "index_name": "index0", "id": "1" }' -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Get | jq -r '.doc | @base64d' | jq . 
-
 $ grpcurl -proto phalanx-proto/proto/phalanx.proto -d "$(jq '. | @base64' ./examples/search_request.json  | jq -s -c '{ "index_name": "index0", "request":. }')" -plaintext 0.0.0.0:5200 phalanx.DispatcherService/Search | jq -r '.result | @base64d' | jq .
 ```
