@@ -18,6 +18,7 @@ services:
       - '--initial-cluster-state=new'
     ports:
       - "2379:2379"
+    restart: always
 
   etcdkeeper:
     container_name: etcdkeeper
@@ -28,6 +29,7 @@ services:
       - "8080:8080"
     depends_on:
       - etcd
+    restart: always
 
   minio:
     container_name: minio
@@ -43,6 +45,7 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+    restart: always
 
   phalanx-overseer:
     container_name: phalanx-overseer
@@ -61,7 +64,7 @@ services:
       - '--probe-interval=100'
     depends_on:
       - etcd
-      - minio
+    restart: always
 
   phalanx-index0:
     container_name: phalanx-index0
@@ -92,13 +95,14 @@ services:
     depends_on:
       - etcd
       - minio
+    restart: always
 
   phalanx-index1:
     container_name: phalanx-index1
     image: mosuka/phalanx:latest
     ports:
-      - "1500:5000"
-      - "18000:8000"
+      - "5001:5000"
+      - "8001:8000"
     command:
       - 'index'
       - '--address=phalanx-index1'
@@ -122,3 +126,84 @@ services:
     depends_on:
       - etcd
       - minio
+    restart: always
+
+  phalanx-index2:
+    container_name: phalanx-index2
+    image: mosuka/phalanx:latest
+    ports:
+      - "5002:5000"
+      - "8002:8000"
+    command:
+      - 'index'
+      - '--address=phalanx-index2'
+      - '--grpc-port=5000'
+      - '--http-port=8000'
+      - '--index-directory=/var/lib/phalanx/index'
+      - '--schema-file=/etc/phalanx/schema.json'
+      - '--unique-id-field=id'
+      - '--tokenizer-file=/etc/phalanx/tokenizer.json'
+      - '--index-name=index0'
+      - '--shard-name=shard1'
+      - '--node-name=node2'
+      - '--discovery-type=etcd'
+      - '--discovery-root=/phalanx'
+      - '--etcd-endpoints=http://etcd:2379'
+      - '--storage-type=minio'
+      - '--storage-bucket=phalanx'
+      - '--minio-access-key=minioadmin'
+      - '--minio-secret-key=minioadmin'
+      - '--minio-endpoint=http://minio:9000'
+    depends_on:
+      - etcd
+      - minio
+    restart: always
+
+  phalanx-index3:
+    container_name: phalanx-index3
+    image: mosuka/phalanx:latest
+    ports:
+      - "5003:5000"
+      - "8003:8000"
+    command:
+      - 'index'
+      - '--address=phalanx-index3'
+      - '--grpc-port=5000'
+      - '--http-port=8000'
+      - '--index-directory=/var/lib/phalanx/index'
+      - '--schema-file=/etc/phalanx/schema.json'
+      - '--unique-id-field=id'
+      - '--tokenizer-file=/etc/phalanx/tokenizer.json'
+      - '--index-name=index0'
+      - '--shard-name=shard1'
+      - '--node-name=node3'
+      - '--discovery-type=etcd'
+      - '--discovery-root=/phalanx'
+      - '--etcd-endpoints=http://etcd:2379'
+      - '--storage-type=minio'
+      - '--storage-bucket=phalanx'
+      - '--minio-access-key=minioadmin'
+      - '--minio-secret-key=minioadmin'
+      - '--minio-endpoint=http://minio:9000'
+    depends_on:
+      - etcd
+      - minio
+    restart: always
+
+  phalanx-dispatcher:
+    container_name: phalanx-dispatcher1
+    image: mosuka/phalanx:latest
+    ports:
+      - "5200:5200"
+      - "8200:8200"
+    command:
+      - 'dispatcher'
+      - '--address=phalanx-dispatcher'
+      - '--grpc-port=5200'
+      - '--http-port=8200'
+      - '--discovery-type=etcd'
+      - '--discovery-root=/phalanx'
+      - '--etcd-endpoints=http://etcd:2379'
+    depends_on:
+      - etcd
+    restart: always

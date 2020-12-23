@@ -1,7 +1,5 @@
 FROM rust:1.48.0-slim-buster AS builder
 
-ARG BAYARD_VERSION
-
 WORKDIR /repo
 
 RUN set -ex \
