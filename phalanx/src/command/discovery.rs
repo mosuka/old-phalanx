@@ -13,17 +13,17 @@ use tonic::transport::Server as TonicServer;
 use tonic::Request;
 
 use phalanx_common::log::set_logger;
+use phalanx_discovery::discovery::Discovery;
+use phalanx_discovery::server::grpc::DiscoveryService;
+use phalanx_discovery::server::http::handle;
 use phalanx_kvs::kvs::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE};
 use phalanx_kvs::kvs::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
 use phalanx_kvs::kvs::KVSContainer;
-use phalanx_overseer::overseer::Overseer;
-use phalanx_overseer::server::grpc::OverseerService;
-use phalanx_overseer::server::http::handle;
-use phalanx_proto::phalanx::overseer_service_client::OverseerServiceClient;
-use phalanx_proto::phalanx::overseer_service_server::OverseerServiceServer;
+use phalanx_proto::phalanx::discovery_service_client::DiscoveryServiceClient;
+use phalanx_proto::phalanx::discovery_service_server::DiscoveryServiceServer;
 use phalanx_proto::phalanx::{UnwatchReq, WatchReq};
 
-pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<()> {
+pub async fn run_discovery(matches: &ArgMatches<'_>) -> Result<()> {
     set_logger();
 
     let kvs_container = match matches.value_of("discovery_type") {
@@ -87,7 +87,7 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<()> {
         }
     };
 
-    let overseer = Overseer::new(kvs_container);
+    let overseer = Discovery::new(kvs_container);
 
     let address = match matches.value_of("address") {
         Some(host) => host,
@@ -163,10 +163,10 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<()> {
     };
 
     // start gRPC server
-    let overseer_service = OverseerService::new(overseer);
+    let overseer_service = DiscoveryService::new(overseer);
     tokio::spawn(
         TonicServer::builder()
-            .add_service(OverseerServiceServer::new(overseer_service))
+            .add_service(DiscoveryServiceServer::new(overseer_service))
             .serve(grpc_address),
     );
     info!("start gRPC server on {}", grpc_address.to_string());
@@ -180,21 +180,18 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<()> {
     info!("start HTTP server on {}", http_address.to_string());
 
     // create gRPC client
-    let mut grpc_client = match OverseerServiceClient::connect(format!(
-        "http://{}",
-        grpc_address.to_string()
-    ))
-    .await
-    {
-        Ok(grpc_client) => grpc_client,
-        Err(e) => {
-            return Err(anyhow!(
-                "failed to connect gRPC server {}: {}",
-                grpc_address.to_string(),
-                e.to_string()
-            ));
-        }
-    };
+    let mut grpc_client =
+        match DiscoveryServiceClient::connect(format!("http://{}", grpc_address.to_string())).await
+        {
+            Ok(grpc_client) => grpc_client,
+            Err(e) => {
+                return Err(anyhow!(
+                    "failed to connect gRPC server {}: {}",
+                    grpc_address.to_string(),
+                    e.to_string()
+                ));
+            }
+        };
 
     // watch
     let watch_req = Request::new(WatchReq {

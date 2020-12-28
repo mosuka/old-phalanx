@@ -28,7 +28,7 @@ message ReadinessReply {
     State state = 1;
 }
 
-service OverseerService {
+service DiscoveryService {
     rpc Readiness (ReadinessReq) returns (ReadinessReply) {}
     rpc Watch (WatchReq) returns (WatchReply) {}
     rpc Unwatch (UnwatchReq) returns (UnwatchReply) {}

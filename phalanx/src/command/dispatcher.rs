@@ -14,11 +14,11 @@ use tonic::Request;
 
 use phalanx_common::log::set_logger;
 use phalanx_dispatcher::server::grpc::DispatcherService;
+use phalanx_dispatcher::server::http::handle;
 use phalanx_dispatcher::watcher::Watcher;
 use phalanx_kvs::kvs::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE};
 use phalanx_kvs::kvs::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
 use phalanx_kvs::kvs::KVSContainer;
-use phalanx_overseer::server::http::handle;
 use phalanx_proto::phalanx::dispatcher_service_client::DispatcherServiceClient;
 use phalanx_proto::phalanx::dispatcher_service_server::DispatcherServiceServer;
 use phalanx_proto::phalanx::{UnwatchReq, WatchReq};
