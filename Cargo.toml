@@ -2,9 +2,9 @@
 members = [
     "phalanx",
     "phalanx-common",
-    "phalanx-discovery",
     "phalanx-dispatcher",
     "phalanx-index",
+    "phalanx-kvs",
     "phalanx-overseer",
     "phalanx-proto",
     "phalanx-storage"

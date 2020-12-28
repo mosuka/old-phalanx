@@ -13,11 +13,9 @@ use tonic::transport::Server as TonicServer;
 use tonic::Request;
 
 use phalanx_common::log::set_logger;
-use phalanx_discovery::discovery::etcd::{
-    Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE,
-};
-use phalanx_discovery::discovery::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
-use phalanx_discovery::discovery::DiscoveryContainer;
+use phalanx_kvs::kvs::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE};
+use phalanx_kvs::kvs::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
+use phalanx_kvs::kvs::{KVSContainer};
 use phalanx_overseer::overseer::Overseer;
 use phalanx_overseer::server::grpc::OverseerService;
 use phalanx_overseer::server::http::handle;
@@ -28,7 +26,7 @@ use phalanx_proto::phalanx::{UnwatchReq, WatchReq};
 pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<()> {
     set_logger();
 
-    let discovery_container = match matches.value_of("discovery_type") {
+    let kvs_container = match matches.value_of("discovery_type") {
         Some(discovery_type) => {
             let discovery_root = match matches.value_of("discovery_root") {
                 Some(discovery_root) => discovery_root,
@@ -56,20 +54,20 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<()> {
                         tls_cert_path: None,
                         tls_key_path: None,
                     };
-                    DiscoveryContainer {
-                        discovery: Box::new(EtcdDiscovery::new(config)),
+                    KVSContainer {
+                        kvs: Box::new(EtcdDiscovery::new(config)),
                     }
                 }
-                NOP_DISCOVERY_TYPE => DiscoveryContainer {
-                    discovery: Box::new(NopDiscovery::new()),
+                NOP_DISCOVERY_TYPE => KVSContainer {
+                    kvs: Box::new(NopDiscovery::new()),
                 },
                 _ => {
                     return Err(anyhow!("unsupported discovery type: {}", discovery_type));
                 }
             }
         }
-        None => DiscoveryContainer {
-            discovery: Box::new(NopDiscovery::new()),
+        None => KVSContainer {
+            kvs: Box::new(NopDiscovery::new()),
         },
     };
 
@@ -89,7 +87,7 @@ pub async fn run_overseer(matches: &ArgMatches<'_>) -> Result<()> {
         }
     };
 
-    let overseer = Overseer::new(discovery_container);
+    let overseer = Overseer::new(kvs_container);
 
     let address = match matches.value_of("address") {
         Some(host) => host,

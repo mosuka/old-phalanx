@@ -12,8 +12,8 @@ use tokio::sync::RwLock;
 use tonic::codegen::Arc;
 use tonic::transport::Channel;
 
-use phalanx_discovery::discovery::nop::TYPE as NOP_TYPE;
-use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
+use phalanx_kvs::kvs::nop::TYPE as NOP_TYPE;
+use phalanx_kvs::kvs::{KVSContainer, EventType};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::NodeDetails;
 
@@ -54,7 +54,7 @@ fn parse_key(key: &str) -> Result<(String, String, String)> {
 }
 
 pub struct Watcher {
-    discovery_container: DiscoveryContainer,
+    kvs_container: KVSContainer,
     watching: Arc<AtomicBool>,
     unwatch: Arc<AtomicBool>,
     pub metadata_map: Arc<RwLock<HashMap<String, HashMap<String, HashMap<String, NodeDetails>>>>>,
@@ -64,9 +64,9 @@ pub struct Watcher {
 }
 
 impl Watcher {
-    pub async fn new(discovery_container: DiscoveryContainer) -> Watcher {
+    pub async fn new(kvs_container: KVSContainer) -> Watcher {
         Watcher {
-            discovery_container,
+            kvs_container,
             watching: Arc::new(AtomicBool::new(false)),
             unwatch: Arc::new(AtomicBool::new(false)),
             metadata_map: Arc::new(RwLock::new(HashMap::new())),
@@ -76,7 +76,7 @@ impl Watcher {
     }
 
     pub async fn watch(&mut self) -> Result<()> {
-        if self.discovery_container.discovery.get_type() == NOP_TYPE {
+        if self.kvs_container.kvs.get_type() == NOP_TYPE {
             debug!("the NOP discovery does not do anything");
             return Ok(());
         }
@@ -93,7 +93,7 @@ impl Watcher {
         self.shard_ring_map = Arc::new(RwLock::new(HashMap::new()));
         let (sender, receiver) = unbounded();
 
-        match self.discovery_container.discovery.watch(sender, "/").await {
+        match self.kvs_container.kvs.watch(sender, "/").await {
             Ok(_) => (),
             Err(e) => {
                 return Err(anyhow!(e.to_string()));
@@ -104,7 +104,7 @@ impl Watcher {
         let unwatch = Arc::clone(&self.unwatch);
 
         // initialize nodes cache
-        match self.discovery_container.discovery.list("/").await {
+        match self.kvs_container.kvs.list("/").await {
             Ok(kvps) => {
                 for kvp in kvps {
                     // check key format
@@ -449,7 +449,7 @@ impl Watcher {
     }
 
     pub async fn unwatch(&mut self) -> Result<(), Error> {
-        if self.discovery_container.discovery.get_type() == NOP_TYPE {
+        if self.kvs_container.kvs.get_type() == NOP_TYPE {
             debug!("the NOP discovery does not do anything");
             return Ok(());
         }
@@ -460,7 +460,7 @@ impl Watcher {
             return Err(anyhow!(msg));
         }
 
-        match self.discovery_container.discovery.unwatch().await {
+        match self.kvs_container.kvs.unwatch().await {
             Ok(_) => (),
             Err(e) => {
                 return Err(anyhow!(e.to_string()));

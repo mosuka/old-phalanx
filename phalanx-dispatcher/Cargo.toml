@@ -21,6 +21,6 @@ tonic = "0.3"
 tokio = { version = "0.2", features = [ "full" ] }
 
 phalanx-common = { version = "0.1.0", path = "../phalanx-common" }
-phalanx-discovery = { version = "0.1.0", path = "../phalanx-discovery" }
+phalanx-kvs = { version = "0.1.0", path = "../phalanx-kvs" }
 phalanx-index = { version = "0.1.0", path = "../phalanx-index" }
 phalanx-proto = { version = "0.1.0", path = "../phalanx-proto" }

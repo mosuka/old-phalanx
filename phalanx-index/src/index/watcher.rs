@@ -17,9 +17,9 @@ use tokio::sync::RwLock;
 use tonic::codegen::Arc;
 use walkdir::WalkDir;
 
-use phalanx_discovery::discovery::etcd::{Etcd, EtcdConfig, TYPE as ETCD_TYPE};
-use phalanx_discovery::discovery::nop::{Nop, TYPE as NOP_TYPE};
-use phalanx_discovery::discovery::{DiscoveryContainer, EventType};
+use phalanx_kvs::kvs::etcd::{Etcd, EtcdConfig, TYPE as ETCD_TYPE};
+use phalanx_kvs::kvs::nop::{Nop, TYPE as NOP_TYPE};
+use phalanx_kvs::kvs::{KVSContainer, EventType};
 use phalanx_proto::phalanx::{NodeDetails, Role, State};
 use phalanx_storage::storage::StorageContainer;
 
@@ -77,7 +77,7 @@ pub struct Watcher {
     index_name: String,
     shard_name: String,
     node_name: String,
-    discovery_container: DiscoveryContainer,
+    kvs_container: KVSContainer,
     receiving: Arc<AtomicBool>,
     unreceive: Arc<AtomicBool>,
     node_details: Arc<RwLock<NodeDetails>>,
@@ -91,7 +91,7 @@ impl Watcher {
         index_name: &str,
         shard_name: &str,
         node_name: &str,
-        discovery_container: DiscoveryContainer,
+        kvs_container: KVSContainer,
         index_dir: &str,
         storage_container: StorageContainer,
     ) -> Watcher {
@@ -105,7 +105,7 @@ impl Watcher {
             index_name: String::from(index_name),
             shard_name: String::from(shard_name),
             node_name: String::from(node_name),
-            discovery_container,
+            kvs_container,
             receiving: Arc::new(AtomicBool::new(false)),
             unreceive: Arc::new(AtomicBool::new(false)),
             node_details: Arc::new(RwLock::new(node_details)),
@@ -116,7 +116,7 @@ impl Watcher {
     }
 
     pub async fn watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if self.discovery_container.discovery.get_type() == NOP_TYPE {
+        if self.kvs_container.kvs.get_type() == NOP_TYPE {
             debug!("the NOP discovery does not do anything");
             return Ok(());
         }
@@ -133,8 +133,8 @@ impl Watcher {
         // specifies the key of the shard to which it joined
         let key = format!("/{}/{}/", self.index_name, self.shard_name);
         match self
-            .discovery_container
-            .discovery
+            .kvs_container
+            .kvs
             .watch(sender, key.as_str())
             .await
         {
@@ -401,11 +401,11 @@ impl Watcher {
         });
 
         let config_json = self
-            .discovery_container
-            .discovery
+            .kvs_container
+            .kvs
             .export_config_json()
             .unwrap_or("".to_string());
-        let discovery_container = match self.discovery_container.discovery.get_type() {
+        let kvs_container = match self.kvs_container.kvs.get_type() {
             ETCD_TYPE => {
                 let config = match serde_json::from_str::<EtcdConfig>(config_json.as_str()) {
                     Ok(config) => config,
@@ -415,12 +415,12 @@ impl Watcher {
                         return Err(Box::new(IOError::new(ErrorKind::Other, msg)));
                     }
                 };
-                DiscoveryContainer {
-                    discovery: Box::new(Etcd::new(config)),
+                KVSContainer {
+                    kvs: Box::new(Etcd::new(config)),
                 }
             }
-            _ => DiscoveryContainer {
-                discovery: Box::new(Nop::new()),
+            _ => KVSContainer {
+                kvs: Box::new(Nop::new()),
             },
         };
         // let discovery_container = self.discovery_container.clone();
@@ -447,7 +447,7 @@ impl Watcher {
             watcher.watch(watch_dir, RecursiveMode::Recursive).unwrap();
 
             loop {
-                let mut discovery_container = discovery_container.clone();
+                let mut kvs_container = kvs_container.clone();
 
                 match receiver.try_recv() {
                     Ok(msg) => {
@@ -636,7 +636,7 @@ impl Watcher {
                             };
 
                             info!("put {}", &key);
-                            match discovery_container.discovery.put(key.as_str(), value).await {
+                            match kvs_container.kvs.put(key.as_str(), value).await {
                                 Ok(_) => {
                                     debug!("put index metadata: key={}", &key);
                                 }
@@ -669,7 +669,7 @@ impl Watcher {
     }
 
     pub async fn unwatch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if self.discovery_container.discovery.get_type() == NOP_TYPE {
+        if self.kvs_container.kvs.get_type() == NOP_TYPE {
             debug!("the NOP discovery does not do anything");
             return Ok(());
         }
@@ -680,7 +680,7 @@ impl Watcher {
             return Err(Box::new(IOError::new(ErrorKind::Other, msg)));
         }
 
-        match self.discovery_container.discovery.unwatch().await {
+        match self.kvs_container.kvs.unwatch().await {
             Ok(_) => (),
             Err(err) => {
                 let msg = format!("failed to unwatch: error={:?}", err);

@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use crossbeam::channel::Sender;
 use serde::{Deserialize, Serialize};
 
-use crate::discovery::{Discovery, Event, KeyValuePair};
+use crate::kvs::{KeyValueStore, Event, KeyValuePair};
 
 pub const TYPE: &str = "nop";
 
@@ -22,7 +22,7 @@ impl Nop {
 }
 
 #[async_trait]
-impl Discovery for Nop {
+impl KeyValueStore for Nop {
     fn get_type(&self) -> &str {
         TYPE
     }
