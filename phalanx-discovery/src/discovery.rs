@@ -76,7 +76,7 @@ fn parse_node_meta_key(key: &str) -> Result<(String, String, String), IOError> {
     }
 }
 
-pub struct Overseer {
+pub struct Discovery {
     kvs_container: KVSContainer,
 
     sender: Option<Sender<Event>>,
@@ -91,9 +91,9 @@ pub struct Overseer {
     unprobe: Arc<AtomicBool>,
 }
 
-impl Overseer {
-    pub fn new(kvs_container: KVSContainer) -> Overseer {
-        Overseer {
+impl Discovery {
+    pub fn new(kvs_container: KVSContainer) -> Discovery {
+        Discovery {
             kvs_container,
             sender: None,
             receiver: None,

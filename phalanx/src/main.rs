@@ -5,9 +5,9 @@ use clap::{
     crate_authors, crate_description, crate_name, crate_version, App, AppSettings, Arg, SubCommand,
 };
 
+use phalanx::command::discovery::run_discovery;
 use phalanx::command::dispatcher::run_dispatcher;
 use phalanx::command::index::run_index;
-use phalanx::command::overseer::run_overseer;
 use phalanx_index::index::config::{
     DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
@@ -206,7 +206,7 @@ async fn main() -> Result<()> {
                 ),
         )
         .subcommand(
-            SubCommand::with_name("overseer")
+            SubCommand::with_name("discovery")
                 .setting(AppSettings::DeriveDisplayOrder)
                 .setting(AppSettings::DisableVersion)
                 .author(crate_authors!())
@@ -336,7 +336,7 @@ async fn main() -> Result<()> {
     let options = options.unwrap();
     let result = match subcommand {
         "index" => run_index(options).await,
-        "overseer" => run_overseer(options).await,
+        "discovery" => run_discovery(options).await,
         "dispatcher" => run_dispatcher(options).await,
         _ => panic!("unknown command: {:?}", subcommand),
     };

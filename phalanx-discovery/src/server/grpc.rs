@@ -5,13 +5,13 @@ use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, Histo
 use tokio::sync::Mutex;
 use tonic::{Code, Request, Response, Status};
 
-use phalanx_proto::phalanx::overseer_service_server::OverseerService as ProtoOverseerService;
+use phalanx_proto::phalanx::discovery_service_server::DiscoveryService as ProtoDiscoveryService;
 use phalanx_proto::phalanx::{
     InquireReply, InquireReq, ReadinessReply, ReadinessReq, RegisterReply, RegisterReq, State,
     UnregisterReply, UnregisterReq, UnwatchReply, UnwatchReq, WatchReply, WatchReq,
 };
 
-use crate::overseer::Overseer;
+use crate::discovery::Discovery;
 
 lazy_static! {
     static ref REQUEST_COUNTER: CounterVec = register_counter_vec!(
@@ -28,20 +28,20 @@ lazy_static! {
     .unwrap();
 }
 
-pub struct OverseerService {
-    overseer: Arc<Mutex<Overseer>>,
+pub struct DiscoveryService {
+    overseer: Arc<Mutex<Discovery>>,
 }
 
-impl OverseerService {
-    pub fn new(overseer: Overseer) -> OverseerService {
-        OverseerService {
-            overseer: Arc::new(Mutex::new(overseer)),
+impl DiscoveryService {
+    pub fn new(discovery: Discovery) -> DiscoveryService {
+        DiscoveryService {
+            overseer: Arc::new(Mutex::new(discovery)),
         }
     }
 }
 
 #[tonic::async_trait]
-impl ProtoOverseerService for OverseerService {
+impl ProtoDiscoveryService for DiscoveryService {
     async fn readiness(
         &self,
         _request: Request<ReadinessReq>,

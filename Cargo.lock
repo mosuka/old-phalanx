@@ -2049,10 +2049,10 @@ dependencies = [
  "log",
  "num_cpus",
  "phalanx-common",
+ "phalanx-discovery",
  "phalanx-dispatcher",
  "phalanx-index",
  "phalanx-kvs",
- "phalanx-overseer",
  "phalanx-proto",
  "phalanx-storage",
  "serde_json",
@@ -2067,6 +2067,23 @@ dependencies = [
  "dirs 3.0.1",
  "env_logger",
  "tokio",
+]
+
+[[package]]
+name = "phalanx-discovery"
+version = "0.1.0"
+dependencies = [
+ "crossbeam 0.8.0",
+ "hyper",
+ "lazy_static",
+ "log",
+ "phalanx-kvs",
+ "phalanx-proto",
+ "prometheus",
+ "regex",
+ "serde_json",
+ "tokio",
+ "tonic",
 ]
 
 [[package]]
@@ -2133,23 +2150,6 @@ dependencies = [
  "log",
  "prometheus",
  "serde",
- "serde_json",
- "tokio",
- "tonic",
-]
-
-[[package]]
-name = "phalanx-overseer"
-version = "0.1.0"
-dependencies = [
- "crossbeam 0.8.0",
- "hyper",
- "lazy_static",
- "log",
- "phalanx-kvs",
- "phalanx-proto",
- "prometheus",
- "regex",
  "serde_json",
  "tokio",
  "tonic",

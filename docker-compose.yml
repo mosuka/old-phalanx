@@ -48,14 +48,14 @@ services:
     restart: always
 
   phalanx-overseer:
-    container_name: phalanx-overseer
+    container_name: phalanx-discovery
     image: mosuka/phalanx:latest
     ports:
       - "5100:5100"
       - "8100:8100"
     command:
-      - 'overseer'
-      - '--address=phalanx-overseer'
+      - 'discovery'
+      - '--address=phalanx-discovery'
       - '--grpc-port=5100'
       - '--http-port=8100'
       - '--discovery-type=etcd'
