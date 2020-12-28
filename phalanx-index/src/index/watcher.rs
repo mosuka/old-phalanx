@@ -19,7 +19,7 @@ use walkdir::WalkDir;
 
 use phalanx_kvs::kvs::etcd::{Etcd, EtcdConfig, TYPE as ETCD_TYPE};
 use phalanx_kvs::kvs::nop::{Nop, TYPE as NOP_TYPE};
-use phalanx_kvs::kvs::{KVSContainer, EventType};
+use phalanx_kvs::kvs::{EventType, KVSContainer};
 use phalanx_proto::phalanx::{NodeDetails, Role, State};
 use phalanx_storage::storage::StorageContainer;
 
@@ -132,12 +132,7 @@ impl Watcher {
 
         // specifies the key of the shard to which it joined
         let key = format!("/{}/{}/", self.index_name, self.shard_name);
-        match self
-            .kvs_container
-            .kvs
-            .watch(sender, key.as_str())
-            .await
-        {
+        match self.kvs_container.kvs.watch(sender, key.as_str()).await {
             Ok(_) => (),
             Err(err) => {
                 let msg = format!("failed to watch: key={}, error={:?}", key, err);

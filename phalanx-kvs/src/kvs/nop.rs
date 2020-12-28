@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use crossbeam::channel::Sender;
 use serde::{Deserialize, Serialize};
 
-use crate::kvs::{KeyValueStore, Event, KeyValuePair};
+use crate::kvs::{Event, KeyValuePair, KeyValueStore};
 
 pub const TYPE: &str = "nop";
 

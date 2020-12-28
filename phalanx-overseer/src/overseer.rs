@@ -15,7 +15,7 @@ use tokio::time::Duration;
 
 use phalanx_kvs::kvs::etcd::{Etcd, EtcdConfig, TYPE as ETCD_TYPE};
 use phalanx_kvs::kvs::nop::Nop;
-use phalanx_kvs::kvs::{KVSContainer, Event, EventType};
+use phalanx_kvs::kvs::{Event, EventType, KVSContainer};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::{NodeDetails, ReadinessReq, Role, State};
 
@@ -359,11 +359,7 @@ impl Overseer {
                                     {
                                         node_details.role = Role::Replica as i32;
                                         let value = serde_json::to_vec(&node_details).unwrap();
-                                        match kvs_container
-                                            .kvs
-                                            .put(kvp.key.as_str(), value)
-                                            .await
-                                        {
+                                        match kvs_container.kvs.put(kvp.key.as_str(), value).await {
                                             Ok(_) => {
                                                 debug!(
                                                     "{} has changed from a candidate to a replica",
@@ -441,11 +437,7 @@ impl Overseer {
                                         {
                                             node_details.role = Role::Primary as i32;
                                             let value = serde_json::to_vec(&node_details).unwrap();
-                                            match kvs_container
-                                                .kvs
-                                                .put(&kvp.key, value)
-                                                .await
-                                            {
+                                            match kvs_container.kvs.put(&kvp.key, value).await {
                                                 Ok(_) => {
                                                     debug!(
                                                         "{} has changed from a replica to a primary",
@@ -574,11 +566,7 @@ impl Overseer {
                                             role: Role::Candidate as i32,
                                         };
                                         let value = serde_json::to_vec(&new_node_details).unwrap();
-                                        match kvs_container
-                                            .kvs
-                                            .put(key.as_str(), value)
-                                            .await
-                                        {
+                                        match kvs_container.kvs.put(key.as_str(), value).await {
                                             Ok(_) => (),
                                             Err(e) => {
                                                 error!("failed to put: error={:?}", e);
@@ -605,11 +593,7 @@ impl Overseer {
                                         role: Role::Candidate as i32,
                                     };
                                     let value = serde_json::to_vec(&new_node_details).unwrap();
-                                    match kvs_container
-                                        .kvs
-                                        .put(key.as_str(), value)
-                                        .await
-                                    {
+                                    match kvs_container.kvs.put(key.as_str(), value).await {
                                         Ok(_) => (),
                                         Err(e) => {
                                             error!("failed to set: error={:?}", e);
@@ -634,11 +618,7 @@ impl Overseer {
                                         role: node_details.role,
                                     };
                                     let value = serde_json::to_vec(&new_node_details).unwrap();
-                                    match kvs_container
-                                        .kvs
-                                        .put(key.as_str(), value)
-                                        .await
-                                    {
+                                    match kvs_container.kvs.put(key.as_str(), value).await {
                                         Ok(_) => (),
                                         Err(e) => {
                                             error!("failed to set: error={:?}", e);
@@ -658,11 +638,7 @@ impl Overseer {
                                         role: Role::Candidate as i32,
                                     };
                                     let value = serde_json::to_vec(&new_node_details).unwrap();
-                                    match kvs_container
-                                        .kvs
-                                        .put(key.as_str(), value)
-                                        .await
-                                    {
+                                    match kvs_container.kvs.put(key.as_str(), value).await {
                                         Ok(_) => (),
                                         Err(e) => {
                                             error!("failed to set: error={:?}", e);

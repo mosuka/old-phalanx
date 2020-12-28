@@ -15,7 +15,7 @@ use tonic::Request;
 use phalanx_common::log::set_logger;
 use phalanx_kvs::kvs::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE};
 use phalanx_kvs::kvs::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
-use phalanx_kvs::kvs::{KVSContainer};
+use phalanx_kvs::kvs::KVSContainer;
 use phalanx_overseer::overseer::Overseer;
 use phalanx_overseer::server::grpc::OverseerService;
 use phalanx_overseer::server::http::handle;

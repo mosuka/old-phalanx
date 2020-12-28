@@ -8,12 +8,12 @@ use clap::{
 use phalanx::command::dispatcher::run_dispatcher;
 use phalanx::command::index::run_index;
 use phalanx::command::overseer::run_overseer;
-use phalanx_kvs::kvs::etcd::DEFAULT_ENDPOINTS as ETCD_DEFAULT_ENDPOINTS;
-use phalanx_kvs::kvs::DEFAULT_ROOT;
 use phalanx_index::index::config::{
     DEFAULT_INDEXER_MEMORY_SIZE, DEFAULT_INDEX_DIRECTORY, DEFAULT_SCHEMA_FILE,
     DEFAULT_TOKENIZER_FILE, DEFAULT_UNIQUE_KEY_FIELD,
 };
+use phalanx_kvs::kvs::etcd::DEFAULT_ENDPOINTS as ETCD_DEFAULT_ENDPOINTS;
+use phalanx_kvs::kvs::DEFAULT_ROOT;
 use phalanx_storage::storage::minio::{
     DEFAULT_ACCESS_KEY as MINIO_DEFAULT_ACCESS_KEY, DEFAULT_ENDPOINT as MINIO_DEFAULT_ENDPOINT,
     DEFAULT_SECRET_KEY as MINIO_DEFAULT_SECRET_KEY,

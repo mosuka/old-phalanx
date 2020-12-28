@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio::stream::StreamExt;
 use tonic::transport::{Certificate, ClientTlsConfig, Identity};
 
-use crate::kvs::{KeyValueStore, Event, EventType as DEventType, KeyValuePair};
+use crate::kvs::{Event, EventType as DEventType, KeyValuePair, KeyValueStore};
 
 pub const TYPE: &str = "etcd";
 pub const DEFAULT_ENDPOINTS: &str = "http://127.0.0.1:2379";

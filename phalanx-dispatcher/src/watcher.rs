@@ -13,7 +13,7 @@ use tonic::codegen::Arc;
 use tonic::transport::Channel;
 
 use phalanx_kvs::kvs::nop::TYPE as NOP_TYPE;
-use phalanx_kvs::kvs::{KVSContainer, EventType};
+use phalanx_kvs::kvs::{EventType, KVSContainer};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::NodeDetails;
 

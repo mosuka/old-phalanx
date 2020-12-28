@@ -14,13 +14,13 @@ use tonic::Request;
 
 use phalanx_common::log::set_logger;
 use phalanx_common::path::expand_tilde;
-use phalanx_kvs::kvs::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE};
-use phalanx_kvs::kvs::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
-use phalanx_kvs::kvs::KVSContainer;
 use phalanx_index::index::config::IndexConfig;
 use phalanx_index::index::watcher::Watcher;
 use phalanx_index::server::grpc::IndexService;
 use phalanx_index::server::http::handle;
+use phalanx_kvs::kvs::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE};
+use phalanx_kvs::kvs::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
+use phalanx_kvs::kvs::KVSContainer;
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::index_service_server::IndexServiceServer;
 use phalanx_proto::phalanx::{NodeDetails, Role, State, UnwatchReq, WatchReq};
@@ -352,11 +352,7 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<()> {
             ));
         }
     };
-    match kvs_container
-        .kvs
-        .put(key.as_str(), node_details_json)
-        .await
-    {
+    match kvs_container.kvs.put(key.as_str(), node_details_json).await {
         Ok(_) => (),
         Err(e) => {
             return Err(anyhow!(
