@@ -14,13 +14,13 @@ pub const DEFAULT_ROOT: &str = "/phalanx";
 
 lazy_static! {
     static ref NODE_STATE_GAUGE: GaugeVec = register_gauge_vec!(
-        "phalanx_discovery_node_state",
+        "phalanx_kvs_node_state",
         "Node state.",
         &["index", "shard", "node"]
     )
     .unwrap();
     static ref NODE_ROLE_GAUGE: GaugeVec = register_gauge_vec!(
-        "phalanx_discovery_node_role",
+        "phalanx_kvs_node_role",
         "Node role.",
         &["index", "shard", "node"]
     )
@@ -47,7 +47,7 @@ pub struct Event {
 }
 
 #[async_trait]
-pub trait Discovery: DynClone + Send + Sync + 'static {
+pub trait KeyValueStore: DynClone + Send + Sync + 'static {
     fn get_type(&self) -> &str;
 
     fn export_config_json(&self) -> Result<String, IOError>;
@@ -79,9 +79,9 @@ pub trait Discovery: DynClone + Send + Sync + 'static {
     async fn unwatch(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
-clone_trait_object!(Discovery);
+clone_trait_object!(KeyValueStore);
 
 #[derive(Clone)]
-pub struct DiscoveryContainer {
-    pub discovery: Box<dyn Discovery>,
+pub struct KVSContainer {
+    pub kvs: Box<dyn KeyValueStore>,
 }

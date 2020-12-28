@@ -14,15 +14,13 @@ use tonic::Request;
 
 use phalanx_common::log::set_logger;
 use phalanx_common::path::expand_tilde;
-use phalanx_discovery::discovery::etcd::{
-    Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE,
-};
-use phalanx_discovery::discovery::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
-use phalanx_discovery::discovery::DiscoveryContainer;
 use phalanx_index::index::config::IndexConfig;
 use phalanx_index::index::watcher::Watcher;
 use phalanx_index::server::grpc::IndexService;
 use phalanx_index::server::http::handle;
+use phalanx_kvs::kvs::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE};
+use phalanx_kvs::kvs::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
+use phalanx_kvs::kvs::KVSContainer;
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::index_service_server::IndexServiceServer;
 use phalanx_proto::phalanx::{NodeDetails, Role, State, UnwatchReq, WatchReq};
@@ -139,7 +137,7 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<()> {
         ..Default::default()
     };
 
-    let mut discovery_container = match matches.value_of("discovery_type") {
+    let mut kvs_container = match matches.value_of("discovery_type") {
         Some(discovery_type) => {
             let discovery_root = match matches.value_of("discovery_root") {
                 Some(discovery_root) => discovery_root,
@@ -167,20 +165,20 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<()> {
                         tls_cert_path: None,
                         tls_key_path: None,
                     };
-                    DiscoveryContainer {
-                        discovery: Box::new(EtcdDiscovery::new(config)),
+                    KVSContainer {
+                        kvs: Box::new(EtcdDiscovery::new(config)),
                     }
                 }
-                NOP_DISCOVERY_TYPE => DiscoveryContainer {
-                    discovery: Box::new(NopDiscovery::new()),
+                NOP_DISCOVERY_TYPE => KVSContainer {
+                    kvs: Box::new(NopDiscovery::new()),
                 },
                 _ => {
                     return Err(anyhow!("unsupported discovery type: {}", discovery_type));
                 }
             }
         }
-        None => DiscoveryContainer {
-            discovery: Box::new(NopDiscovery::new()),
+        None => KVSContainer {
+            kvs: Box::new(NopDiscovery::new()),
         },
     };
 
@@ -354,11 +352,7 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<()> {
             ));
         }
     };
-    match discovery_container
-        .discovery
-        .put(key.as_str(), node_details_json)
-        .await
-    {
+    match kvs_container.kvs.put(key.as_str(), node_details_json).await {
         Ok(_) => (),
         Err(e) => {
             return Err(anyhow!(
@@ -374,7 +368,7 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<()> {
         index_name,
         shard_name,
         node_name,
-        discovery_container,
+        kvs_container,
         index_directory,
         storage_container.clone(),
     );

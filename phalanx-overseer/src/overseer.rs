@@ -13,9 +13,9 @@ use regex::Regex;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
 
-use phalanx_discovery::discovery::etcd::{Etcd, EtcdConfig, TYPE as ETCD_TYPE};
-use phalanx_discovery::discovery::nop::Nop;
-use phalanx_discovery::discovery::{DiscoveryContainer, Event, EventType};
+use phalanx_kvs::kvs::etcd::{Etcd, EtcdConfig, TYPE as ETCD_TYPE};
+use phalanx_kvs::kvs::nop::Nop;
+use phalanx_kvs::kvs::{Event, EventType, KVSContainer};
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::{NodeDetails, ReadinessReq, Role, State};
 
@@ -77,7 +77,7 @@ fn parse_node_meta_key(key: &str) -> Result<(String, String, String), IOError> {
 }
 
 pub struct Overseer {
-    discovery_container: DiscoveryContainer,
+    kvs_container: KVSContainer,
 
     sender: Option<Sender<Event>>,
     receiver: Option<Receiver<Event>>,
@@ -92,9 +92,9 @@ pub struct Overseer {
 }
 
 impl Overseer {
-    pub fn new(discovery_container: DiscoveryContainer) -> Overseer {
+    pub fn new(kvs_container: KVSContainer) -> Overseer {
         Overseer {
-            discovery_container,
+            kvs_container,
             sender: None,
             receiver: None,
             nodes: Arc::new(RwLock::new(HashMap::new())),
@@ -115,7 +115,7 @@ impl Overseer {
         let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
         let value = serde_json::to_vec(&node_details).unwrap();
 
-        match self.discovery_container.discovery.put(&key, value).await {
+        match self.kvs_container.kvs.put(&key, value).await {
             Ok(_) => Ok(()),
             Err(err) => {
                 let msg = format!("failed to register: key={}, error={:?}", &key, err);
@@ -133,7 +133,7 @@ impl Overseer {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
 
-        match self.discovery_container.discovery.delete(&key).await {
+        match self.kvs_container.kvs.delete(&key).await {
             Ok(_) => Ok(()),
             Err(err) => {
                 let msg = format!("failed to unregister: key={}, error={:?}", &key, err);
@@ -151,7 +151,7 @@ impl Overseer {
     ) -> Result<Option<NodeDetails>, Box<dyn Error + Send + Sync>> {
         let key = format!("/{}/{}/{}.json", index_name, shard_name, node_name);
 
-        match self.discovery_container.discovery.get(&key).await {
+        match self.kvs_container.kvs.get(&key).await {
             Ok(response) => match response {
                 Some(json) => match serde_json::from_slice::<NodeDetails>(json.as_slice()) {
                     Ok(node_details) => Ok(Some(node_details)),
@@ -189,7 +189,7 @@ impl Overseer {
 
         let key = "/";
 
-        match self.discovery_container.discovery.watch(sender, key).await {
+        match self.kvs_container.kvs.watch(sender, key).await {
             Ok(_) => Ok(()),
             Err(err) => {
                 let msg = format!("failed to watch: key={}, error={:?}", key, err);
@@ -200,7 +200,7 @@ impl Overseer {
     }
 
     pub async fn unwatch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        match self.discovery_container.discovery.unwatch().await {
+        match self.kvs_container.kvs.unwatch().await {
             Ok(_) => Ok(()),
             Err(err) => {
                 let msg = format!("failed to unwatch: error={:?}", err);
@@ -226,11 +226,11 @@ impl Overseer {
         let unreceive = Arc::clone(&self.unreceive);
 
         let config_json = self
-            .discovery_container
-            .discovery
+            .kvs_container
+            .kvs
             .export_config_json()
             .unwrap_or("".to_string());
-        let discovery_container = match self.discovery_container.discovery.get_type() {
+        let kvs_container = match self.kvs_container.kvs.get_type() {
             ETCD_TYPE => {
                 let config = match serde_json::from_str::<EtcdConfig>(config_json.as_str()) {
                     Ok(config) => config,
@@ -240,12 +240,12 @@ impl Overseer {
                         return Err(Box::new(IOError::new(ErrorKind::Other, msg)));
                     }
                 };
-                DiscoveryContainer {
-                    discovery: Box::new(Etcd::new(config)),
+                KVSContainer {
+                    kvs: Box::new(Etcd::new(config)),
                 }
             }
-            _ => DiscoveryContainer {
-                discovery: Box::new(Nop::new()),
+            _ => KVSContainer {
+                kvs: Box::new(Nop::new()),
             },
         };
         // let discovery_container = self.discovery_container.clone();
@@ -255,11 +255,11 @@ impl Overseer {
             receiving.store(true, Ordering::Relaxed);
 
             {
-                let mut discovery_container = discovery_container.clone();
+                let mut kvs_container = kvs_container.clone();
 
                 // initialize nodes cache
                 let key = "/";
-                match discovery_container.discovery.list(key).await {
+                match kvs_container.kvs.list(key).await {
                     Ok(kvps) => {
                         for kvp in kvps {
                             // check whether a key is a node meta data key
@@ -295,7 +295,7 @@ impl Overseer {
             }
 
             loop {
-                let mut discovery_container = discovery_container.clone();
+                let mut kvs_container = kvs_container.clone();
 
                 match receiver.try_recv() {
                     Ok(event) => {
@@ -333,7 +333,7 @@ impl Overseer {
                         };
 
                         let sel_key = format!("/{}/{}/", index_name, shard_name);
-                        match discovery_container.discovery.list(sel_key.as_str()).await {
+                        match kvs_container.kvs.list(sel_key.as_str()).await {
                             Ok(kvps) => {
                                 for kvp in kvps {
                                     match parse_node_meta_key(&kvp.key) {
@@ -359,11 +359,7 @@ impl Overseer {
                                     {
                                         node_details.role = Role::Replica as i32;
                                         let value = serde_json::to_vec(&node_details).unwrap();
-                                        match discovery_container
-                                            .discovery
-                                            .put(kvp.key.as_str(), value)
-                                            .await
-                                        {
+                                        match kvs_container.kvs.put(kvp.key.as_str(), value).await {
                                             Ok(_) => {
                                                 debug!(
                                                     "{} has changed from a candidate to a replica",
@@ -385,7 +381,7 @@ impl Overseer {
                             }
                         };
 
-                        match discovery_container.discovery.list(sel_key.as_str()).await {
+                        match kvs_container.kvs.list(sel_key.as_str()).await {
                             Ok(kvps) => {
                                 let mut primary_exists = false;
 
@@ -441,11 +437,7 @@ impl Overseer {
                                         {
                                             node_details.role = Role::Primary as i32;
                                             let value = serde_json::to_vec(&node_details).unwrap();
-                                            match discovery_container
-                                                .discovery
-                                                .put(&kvp.key, value)
-                                                .await
-                                            {
+                                            match kvs_container.kvs.put(&kvp.key, value).await {
                                                 Ok(_) => {
                                                     debug!(
                                                         "{} has changed from a replica to a primary",
@@ -512,11 +504,11 @@ impl Overseer {
         let nodes = Arc::clone(&self.nodes);
 
         let config_json = self
-            .discovery_container
-            .discovery
+            .kvs_container
+            .kvs
             .export_config_json()
             .unwrap_or("".to_string());
-        let discovery_container = match self.discovery_container.discovery.get_type() {
+        let kvs_container = match self.kvs_container.kvs.get_type() {
             ETCD_TYPE => {
                 let config = match serde_json::from_str::<EtcdConfig>(config_json.as_str()) {
                     Ok(config) => config,
@@ -527,12 +519,12 @@ impl Overseer {
                         )));
                     }
                 };
-                DiscoveryContainer {
-                    discovery: Box::new(Etcd::new(config)),
+                KVSContainer {
+                    kvs: Box::new(Etcd::new(config)),
                 }
             }
-            _ => DiscoveryContainer {
-                discovery: Box::new(Nop::new()),
+            _ => KVSContainer {
+                kvs: Box::new(Nop::new()),
             },
         };
         // let discovery_container = self.discovery_container.clone();
@@ -542,7 +534,7 @@ impl Overseer {
             probing.store(true, Ordering::Relaxed);
 
             loop {
-                let mut discovery_container = discovery_container.clone();
+                let mut kvs_container = kvs_container.clone();
 
                 if unprobe.load(Ordering::Relaxed) {
                     debug!("a request to stop the prober has been received");
@@ -574,11 +566,7 @@ impl Overseer {
                                             role: Role::Candidate as i32,
                                         };
                                         let value = serde_json::to_vec(&new_node_details).unwrap();
-                                        match discovery_container
-                                            .discovery
-                                            .put(key.as_str(), value)
-                                            .await
-                                        {
+                                        match kvs_container.kvs.put(key.as_str(), value).await {
                                             Ok(_) => (),
                                             Err(e) => {
                                                 error!("failed to put: error={:?}", e);
@@ -605,11 +593,7 @@ impl Overseer {
                                         role: Role::Candidate as i32,
                                     };
                                     let value = serde_json::to_vec(&new_node_details).unwrap();
-                                    match discovery_container
-                                        .discovery
-                                        .put(key.as_str(), value)
-                                        .await
-                                    {
+                                    match kvs_container.kvs.put(key.as_str(), value).await {
                                         Ok(_) => (),
                                         Err(e) => {
                                             error!("failed to set: error={:?}", e);
@@ -634,11 +618,7 @@ impl Overseer {
                                         role: node_details.role,
                                     };
                                     let value = serde_json::to_vec(&new_node_details).unwrap();
-                                    match discovery_container
-                                        .discovery
-                                        .put(key.as_str(), value)
-                                        .await
-                                    {
+                                    match kvs_container.kvs.put(key.as_str(), value).await {
                                         Ok(_) => (),
                                         Err(e) => {
                                             error!("failed to set: error={:?}", e);
@@ -658,11 +638,7 @@ impl Overseer {
                                         role: Role::Candidate as i32,
                                     };
                                     let value = serde_json::to_vec(&new_node_details).unwrap();
-                                    match discovery_container
-                                        .discovery
-                                        .put(key.as_str(), value)
-                                        .await
-                                    {
+                                    match kvs_container.kvs.put(key.as_str(), value).await {
                                         Ok(_) => (),
                                         Err(e) => {
                                             error!("failed to set: error={:?}", e);

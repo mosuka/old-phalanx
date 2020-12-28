@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio::stream::StreamExt;
 use tonic::transport::{Certificate, ClientTlsConfig, Identity};
 
-use crate::discovery::{Discovery, Event, EventType as DEventType, KeyValuePair};
+use crate::kvs::{Event, EventType as DEventType, KeyValuePair, KeyValueStore};
 
 pub const TYPE: &str = "etcd";
 pub const DEFAULT_ENDPOINTS: &str = "http://127.0.0.1:2379";
@@ -89,7 +89,7 @@ impl Etcd {
 }
 
 #[async_trait]
-impl Discovery for Etcd {
+impl KeyValueStore for Etcd {
     fn get_type(&self) -> &str {
         TYPE
     }
