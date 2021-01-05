@@ -32,41 +32,9 @@ service DiscoveryService {
     rpc Readiness (ReadinessReq) returns (ReadinessReply) {}
     rpc Watch (WatchReq) returns (WatchReply) {}
     rpc Unwatch (UnwatchReq) returns (UnwatchReply) {}
-    rpc Register (RegisterReq) returns (RegisterReply) {}
-    rpc Unregister (UnregisterReq) returns (UnregisterReply) {}
-    rpc Inquire (InquireReq) returns (InquireReply) {}
 }
 
-message RegisterReq {
-    string index_name = 1;
-    string shard_name = 2;
-    string node_name = 3;
-    NodeDetails node_details = 4;
-}
-
-message RegisterReply {}
-
-message UnregisterReq {
-    string index_name = 1;
-    string shard_name = 2;
-    string node_name = 3;
-}
-
-message UnregisterReply {}
-
-message InquireReq {
-    string index_name = 1;
-    string shard_name = 2;
-    string node_name = 3;
-}
-
-message InquireReply {
-    NodeDetails node_details = 1;
-}
-
-message WatchReq {
-    uint64 interval = 1;
-}
+message WatchReq {}
 
 message WatchReply {}
 

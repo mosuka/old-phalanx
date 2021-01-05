@@ -13,9 +13,9 @@ use tonic::transport::Server as TonicServer;
 use tonic::Request;
 
 use phalanx_common::log::set_logger;
-use phalanx_discovery::discovery::Discovery;
 use phalanx_discovery::server::grpc::DiscoveryService;
 use phalanx_discovery::server::http::handle;
+use phalanx_discovery::watcher::Watcher;
 use phalanx_kvs::kvs::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE};
 use phalanx_kvs::kvs::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
 use phalanx_kvs::kvs::KVSContainer;
@@ -86,8 +86,6 @@ pub async fn run_discovery(matches: &ArgMatches<'_>) -> Result<()> {
             return Err(anyhow!("missing --probe-interval"));
         }
     };
-
-    let overseer = Discovery::new(kvs_container);
 
     let address = match matches.value_of("address") {
         Some(host) => host,
@@ -162,8 +160,11 @@ pub async fn run_discovery(matches: &ArgMatches<'_>) -> Result<()> {
         }
     };
 
+    // watcher
+    let watcher = Watcher::new(kvs_container, probe_interval).await;
+
     // start gRPC server
-    let overseer_service = DiscoveryService::new(overseer);
+    let overseer_service = DiscoveryService::new(watcher);
     tokio::spawn(
         TonicServer::builder()
             .add_service(DiscoveryServiceServer::new(overseer_service))
@@ -194,9 +195,7 @@ pub async fn run_discovery(matches: &ArgMatches<'_>) -> Result<()> {
         };
 
     // watch
-    let watch_req = Request::new(WatchReq {
-        interval: probe_interval,
-    });
+    let watch_req = Request::new(WatchReq {});
     match grpc_client.watch(watch_req).await {
         Ok(_) => (),
         Err(e) => {
