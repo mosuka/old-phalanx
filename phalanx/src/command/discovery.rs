@@ -164,10 +164,10 @@ pub async fn run_discovery(matches: &ArgMatches<'_>) -> Result<()> {
     let watcher = Watcher::new(kvs_container, probe_interval).await;
 
     // start gRPC server
-    let overseer_service = DiscoveryService::new(watcher);
+    let discovery_service = DiscoveryService::new(watcher);
     tokio::spawn(
         TonicServer::builder()
-            .add_service(DiscoveryServiceServer::new(overseer_service))
+            .add_service(DiscoveryServiceServer::new(discovery_service))
             .serve(grpc_address),
     );
     info!("start gRPC server on {}", grpc_address.to_string());
