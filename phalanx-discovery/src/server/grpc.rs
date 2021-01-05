@@ -2,26 +2,25 @@ use std::sync::Arc;
 
 use lazy_static::lazy_static;
 use prometheus::{register_counter_vec, register_histogram_vec, CounterVec, HistogramVec};
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tonic::{Code, Request, Response, Status};
 
 use phalanx_proto::phalanx::discovery_service_server::DiscoveryService as ProtoDiscoveryService;
 use phalanx_proto::phalanx::{
-    InquireReply, InquireReq, ReadinessReply, ReadinessReq, RegisterReply, RegisterReq, State,
-    UnregisterReply, UnregisterReq, UnwatchReply, UnwatchReq, WatchReply, WatchReq,
+    ReadinessReply, ReadinessReq, State, UnwatchReply, UnwatchReq, WatchReply, WatchReq,
 };
 
-use crate::discovery::Discovery;
+use crate::watcher::Watcher;
 
 lazy_static! {
     static ref REQUEST_COUNTER: CounterVec = register_counter_vec!(
-        "phalanx_overseer_requests_total",
+        "phalanx_discovery_requests_total",
         "Total number of requests.",
         &["func"]
     )
     .unwrap();
     static ref REQUEST_HISTOGRAM: HistogramVec = register_histogram_vec!(
-        "phalanx_overseer_request_duration_seconds",
+        "phalanx_discovery_request_duration_seconds",
         "The request latencies in seconds.",
         &["func"]
     )
@@ -29,13 +28,13 @@ lazy_static! {
 }
 
 pub struct DiscoveryService {
-    overseer: Arc<Mutex<Discovery>>,
+    watcher: Arc<RwLock<Watcher>>,
 }
 
 impl DiscoveryService {
-    pub fn new(discovery: Discovery) -> DiscoveryService {
+    pub fn new(watcher: Watcher) -> DiscoveryService {
         DiscoveryService {
-            overseer: Arc::new(Mutex::new(discovery)),
+            watcher: Arc::new(RwLock::new(watcher)),
         }
     }
 }
@@ -60,20 +59,15 @@ impl ProtoDiscoveryService for DiscoveryService {
         Ok(Response::new(reply))
     }
 
-    async fn watch(&self, request: Request<WatchReq>) -> Result<Response<WatchReply>, Status> {
+    async fn watch(&self, _request: Request<WatchReq>) -> Result<Response<WatchReply>, Status> {
         REQUEST_COUNTER.with_label_values(&["watch"]).inc();
         let timer = REQUEST_HISTOGRAM
             .with_label_values(&["watch"])
             .start_timer();
 
-        let req = request.into_inner();
-
-        let interval = req.interval;
-
-        let overseer = Arc::clone(&self.overseer);
-        let mut overseer = overseer.lock().await;
-
-        match overseer.watch().await {
+        let watcher_arc = Arc::clone(&self.watcher);
+        let mut watcher = watcher_arc.write().await;
+        match watcher.watch().await {
             Ok(_) => (),
             Err(e) => {
                 timer.observe_duration();
@@ -81,30 +75,6 @@ impl ProtoDiscoveryService for DiscoveryService {
                 return Err(Status::new(
                     Code::Internal,
                     format!("failed to watch: error = {:?}", e),
-                ));
-            }
-        };
-
-        match overseer.receive().await {
-            Ok(_) => (),
-            Err(e) => {
-                timer.observe_duration();
-
-                return Err(Status::new(
-                    Code::Internal,
-                    format!("failed to receive: error = {:?}", e),
-                ));
-            }
-        };
-
-        match overseer.probe(interval).await {
-            Ok(_) => (),
-            Err(e) => {
-                timer.observe_duration();
-
-                return Err(Status::new(
-                    Code::Internal,
-                    format!("failed to probe: error = {:?}", e),
                 ));
             }
         };
@@ -125,10 +95,9 @@ impl ProtoDiscoveryService for DiscoveryService {
             .with_label_values(&["unwatch"])
             .start_timer();
 
-        let overseer = Arc::clone(&self.overseer);
-        let mut overseer = overseer.lock().await;
-
-        match overseer.unwatch().await {
+        let watcher_arc = Arc::clone(&self.watcher);
+        let mut watcher = watcher_arc.write().await;
+        match watcher.unwatch().await {
             Ok(_) => (),
             Err(e) => {
                 timer.observe_duration();
@@ -140,150 +109,10 @@ impl ProtoDiscoveryService for DiscoveryService {
             }
         };
 
-        match overseer.unreceive().await {
-            Ok(_) => (),
-            Err(e) => {
-                timer.observe_duration();
-
-                return Err(Status::new(
-                    Code::Internal,
-                    format!("failed to unreceive: error = {:?}", e),
-                ));
-            }
-        };
-
-        match overseer.unprobe().await {
-            Ok(_) => (),
-            Err(e) => {
-                timer.observe_duration();
-
-                return Err(Status::new(
-                    Code::Internal,
-                    format!("failed to unprobe: error = {:?}", e),
-                ));
-            }
-        }
-
         let reply = UnwatchReply {};
 
         timer.observe_duration();
 
         Ok(Response::new(reply))
-    }
-
-    async fn register(
-        &self,
-        request: Request<RegisterReq>,
-    ) -> Result<Response<RegisterReply>, Status> {
-        REQUEST_COUNTER.with_label_values(&["register"]).inc();
-        let timer = REQUEST_HISTOGRAM
-            .with_label_values(&["register"])
-            .start_timer();
-
-        let req = request.into_inner();
-
-        let index_name = &req.index_name;
-        let shard_name = &req.shard_name;
-        let node_name = &req.node_name;
-
-        let node_details = req.node_details.unwrap();
-
-        let overseer = Arc::clone(&self.overseer);
-        let mut overseer = overseer.lock().await;
-
-        match overseer
-            .register(index_name, shard_name, node_name, node_details)
-            .await
-        {
-            Ok(_) => {
-                let reply = RegisterReply {};
-
-                timer.observe_duration();
-
-                Ok(Response::new(reply))
-            }
-            Err(e) => {
-                timer.observe_duration();
-
-                Err(Status::new(
-                    Code::Internal,
-                    format!("failed to register node: error = {:?}", e),
-                ))
-            }
-        }
-    }
-
-    async fn unregister(
-        &self,
-        request: Request<UnregisterReq>,
-    ) -> Result<Response<UnregisterReply>, Status> {
-        REQUEST_COUNTER.with_label_values(&["unregister"]).inc();
-        let timer = REQUEST_HISTOGRAM
-            .with_label_values(&["unregister"])
-            .start_timer();
-
-        let req = request.into_inner();
-
-        let index_name = &req.index_name;
-        let shard_name = &req.shard_name;
-        let node_name = &req.node_name;
-
-        let overseer = Arc::clone(&self.overseer);
-        let mut overseer = overseer.lock().await;
-
-        match overseer.unregister(index_name, shard_name, node_name).await {
-            Ok(_) => {
-                let reply = UnregisterReply {};
-
-                timer.observe_duration();
-
-                Ok(Response::new(reply))
-            }
-            Err(e) => {
-                timer.observe_duration();
-
-                Err(Status::new(
-                    Code::Internal,
-                    format!("failed to unregister node: error = {:?}", e),
-                ))
-            }
-        }
-    }
-
-    async fn inquire(
-        &self,
-        request: Request<InquireReq>,
-    ) -> Result<Response<InquireReply>, Status> {
-        REQUEST_COUNTER.with_label_values(&["inquire"]).inc();
-        let timer = REQUEST_HISTOGRAM
-            .with_label_values(&["inquire"])
-            .start_timer();
-
-        let req = request.into_inner();
-
-        let index_name = &req.index_name;
-        let shard_name = &req.shard_name;
-        let node_name = &req.node_name;
-
-        let overseer = Arc::clone(&self.overseer);
-        let mut overseer = overseer.lock().await;
-
-        match overseer.inquire(index_name, shard_name, node_name).await {
-            Ok(node_details) => {
-                let reply = InquireReply { node_details };
-
-                timer.observe_duration();
-
-                Ok(Response::new(reply))
-            }
-            Err(e) => {
-                timer.observe_duration();
-
-                Err(Status::new(
-                    Code::Internal,
-                    format!("failed to inquire node: error = {:?}", e),
-                ))
-            }
-        }
     }
 }

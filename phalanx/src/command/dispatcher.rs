@@ -182,7 +182,7 @@ pub async fn run_dispatcher(matches: &ArgMatches<'_>) -> Result<()> {
     };
 
     // watch
-    let watch_req = Request::new(WatchReq { interval: 0 });
+    let watch_req = Request::new(WatchReq {});
     match grpc_client.watch(watch_req).await {
         Ok(_) => (),
         Err(e) => {

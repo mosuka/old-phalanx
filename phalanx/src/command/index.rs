@@ -405,7 +405,7 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<()> {
     info!("start HTTP server on {}", http_address.to_string());
 
     // watch
-    let watch_req = Request::new(WatchReq { interval: 0 });
+    let watch_req = Request::new(WatchReq {});
     match grpc_client.watch(watch_req).await {
         Ok(_) => (),
         Err(e) => {
