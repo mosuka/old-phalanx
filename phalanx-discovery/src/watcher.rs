@@ -313,7 +313,8 @@ impl Watcher {
                                     .get(&index_name)
                                     .unwrap()
                                     .get(&shard_name)
-                                    .unwrap().clone();
+                                    .unwrap()
+                                    .clone();
                                 for (tmp_node_name, node_details) in shards.iter() {
                                     if node_details.state == State::Ready as i32
                                         && node_details.role == Role::Candidate as i32
@@ -339,7 +340,10 @@ impl Watcher {
                                                     .unwrap()
                                                     .get_mut(&shard_name)
                                                     .unwrap()
-                                                    .insert(tmp_node_name.clone(), new_node_details);
+                                                    .insert(
+                                                        tmp_node_name.clone(),
+                                                        new_node_details,
+                                                    );
                                             }
                                             Err(e) => {
                                                 error!(
@@ -366,7 +370,8 @@ impl Watcher {
                                     .get(&index_name)
                                     .unwrap()
                                     .get(&shard_name)
-                                    .unwrap().clone();
+                                    .unwrap()
+                                    .clone();
                                 for (_node_name, node_details) in shards.iter() {
                                     if node_details.state == State::Ready as i32
                                         && node_details.role == Role::Primary as i32
@@ -405,7 +410,10 @@ impl Watcher {
                                                         .unwrap()
                                                         .get_mut(&shard_name)
                                                         .unwrap()
-                                                        .insert(tmp_node_name.clone(), new_node_details);
+                                                        .insert(
+                                                            tmp_node_name.clone(),
+                                                            new_node_details,
+                                                        );
 
                                                     // the leader node has been decided, it will exit the loop
                                                     break;
