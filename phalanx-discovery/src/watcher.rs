@@ -300,7 +300,7 @@ impl Watcher {
                         }
 
                         let mut kvs_container = kvs_container.clone();
-                        let metadata_indices = nodes.read().await;
+                        let mut metadata_indices = nodes.write().await;
 
                         // candidate to replica
                         if metadata_indices.contains_key(&index_name) {
@@ -313,7 +313,8 @@ impl Watcher {
                                     .get(&index_name)
                                     .unwrap()
                                     .get(&shard_name)
-                                    .unwrap();
+                                    .unwrap()
+                                    .clone();
                                 for (tmp_node_name, node_details) in shards.iter() {
                                     if node_details.state == State::Ready as i32
                                         && node_details.role == Role::Candidate as i32
@@ -332,6 +333,17 @@ impl Watcher {
                                                     "change {} from a candidate to a replica",
                                                     &key
                                                 );
+
+                                                // update local node cache
+                                                metadata_indices
+                                                    .get_mut(&index_name)
+                                                    .unwrap()
+                                                    .get_mut(&shard_name)
+                                                    .unwrap()
+                                                    .insert(
+                                                        tmp_node_name.clone(),
+                                                        new_node_details,
+                                                    );
                                             }
                                             Err(e) => {
                                                 error!(
@@ -352,23 +364,27 @@ impl Watcher {
                                 .unwrap()
                                 .contains_key(&shard_name)
                             {
+                                let mut primary_cnt = 0;
+
                                 let shards = metadata_indices
                                     .get(&index_name)
                                     .unwrap()
                                     .get(&shard_name)
-                                    .unwrap();
-
-                                let mut primary_exists = false;
-                                for (_node_name, node_details) in shards {
+                                    .unwrap()
+                                    .clone();
+                                for (_node_name, node_details) in shards.iter() {
                                     if node_details.state == State::Ready as i32
                                         && node_details.role == Role::Primary as i32
                                     {
-                                        primary_exists = true;
-                                        break;
+                                        primary_cnt += 1;
                                     }
                                 }
 
-                                if !primary_exists {
+                                if primary_cnt <= 0 {
+                                    warn!("there is no leader node");
+                                } else if primary_cnt > 1 {
+                                    error!("there are multiple leaders")
+                                } else {
                                     for (tmp_node_name, node_details) in shards {
                                         if node_details.state == State::Ready as i32
                                             && node_details.role == Role::Replica as i32
@@ -387,6 +403,19 @@ impl Watcher {
                                                         "chage {} from a replica to a primary",
                                                         &key
                                                     );
+
+                                                    // update local node cache
+                                                    metadata_indices
+                                                        .get_mut(&index_name)
+                                                        .unwrap()
+                                                        .get_mut(&shard_name)
+                                                        .unwrap()
+                                                        .insert(
+                                                            tmp_node_name.clone(),
+                                                            new_node_details,
+                                                        );
+
+                                                    // the leader node has been decided, it will exit the loop
                                                     break;
                                                 }
                                                 Err(e) => {
