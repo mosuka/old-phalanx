@@ -14,7 +14,8 @@ use tonic::transport::Channel;
 use tonic::Code;
 use tonic::{Request, Response, Status};
 
-use phalanx_index::index::search_result::SearchResult;
+use phalanx_index::index::search_request::SearchRequest;
+use phalanx_index::index::search_result::{ScoredNamedFieldDocument, SearchResult};
 use phalanx_proto::phalanx::dispatcher_service_server::DispatcherService as ProtoDispatcherService;
 use phalanx_proto::phalanx::index_service_client::IndexServiceClient;
 use phalanx_proto::phalanx::{
@@ -762,6 +763,22 @@ impl DispatcherService {
     }
 
     pub async fn search(&self, index_name: &str, request: Vec<u8>) -> Result<Vec<u8>> {
+        let search_request = match serde_json::from_slice::<SearchRequest>(request.as_slice()) {
+            Ok(search_request) => search_request,
+            Err(e) => return Err(anyhow!("{}", e.to_string())),
+        };
+        debug!("search_request={:?}", &search_request);
+
+        let mut distrib_search_request = search_request.clone();
+        distrib_search_request.limit = distrib_search_request.limit + distrib_search_request.from;
+        distrib_search_request.from = 0;
+        debug!("distrib_search_request={:?}", &distrib_search_request);
+
+        let distrib_request = match serde_json::to_vec(&distrib_search_request) {
+            Ok(request) => request,
+            Err(e) => return Err(anyhow!("{}", e.to_string())),
+        };
+
         let watcher_arc = Arc::clone(&self.watcher);
         let watcher = watcher_arc.read().await;
 
@@ -805,7 +822,7 @@ impl DispatcherService {
             let index_name = index_name.to_string();
             let shard_name = shard_name.to_string();
             let node_name = node_name.to_string();
-            let request = request.clone();
+            let distrib_request = distrib_request.clone();
             let handle = tokio::spawn(async move {
                 if node_name.len() <= 0 {
                     Err(anyhow!("there is no available primary node"))
@@ -816,7 +833,7 @@ impl DispatcherService {
                                 Some(client) => {
                                     let req = tonic::Request::new(SearchReq {
                                         index_name: index_name.clone(),
-                                        request,
+                                        request: distrib_request,
                                     });
                                     let mut client: IndexServiceClient<Channel> = client.clone();
                                     match client.search(req).await {
@@ -846,11 +863,10 @@ impl DispatcherService {
             .with_context(|| "failed to join handles")?;
         let resp_cnt = responses.len();
 
-        let mut ret_result = SearchResult {
-            count: 0,
-            docs: Vec::new(),
-            facet: HashMap::new(),
-        };
+        let mut count = 0;
+        let mut docs = Vec::new();
+        let mut facet = HashMap::new();
+
         let mut errs = Vec::new();
         for response in responses {
             match response {
@@ -866,40 +882,29 @@ impl DispatcherService {
                         };
 
                     // increment hit count
-                    ret_result.count += search_result.count;
+                    count += search_result.count;
 
                     // add docs
                     for doc in search_result.docs {
-                        ret_result.docs.push(doc);
+                        docs.push(doc);
                     }
 
                     // add facets
                     for (facet_field, facet_data) in search_result.facet {
-                        if !ret_result.facet.contains_key(&facet_field) {
-                            ret_result.facet.insert(facet_field.clone(), HashMap::new());
+                        if !facet.contains_key(&facet_field) {
+                            facet.insert(facet_field.clone(), HashMap::new());
                         }
                         for (facet_value, facet_cnt) in facet_data {
-                            if !ret_result
-                                .facet
-                                .get(&facet_field)
-                                .unwrap()
-                                .contains_key(&facet_value)
-                            {
-                                ret_result
-                                    .facet
+                            if !facet.get(&facet_field).unwrap().contains_key(&facet_value) {
+                                facet
                                     .get_mut(&facet_field)
                                     .unwrap()
                                     .insert(facet_value, facet_cnt);
                             } else {
-                                let new_facet_cnt = ret_result
-                                    .facet
-                                    .get(&facet_field)
-                                    .unwrap()
-                                    .get(&facet_value)
-                                    .unwrap()
-                                    + facet_cnt;
-                                ret_result
-                                    .facet
+                                let new_facet_cnt =
+                                    facet.get(&facet_field).unwrap().get(&facet_value).unwrap()
+                                        + facet_cnt;
+                                facet
                                     .get_mut(&facet_field)
                                     .unwrap()
                                     .insert(facet_value, new_facet_cnt);
@@ -914,13 +919,23 @@ impl DispatcherService {
             }
         }
 
-        // let search_request = serde_json::from_slice::<SearchRequest>(request.as_slice()).unwrap();
-
         // sort by score
-        ret_result.docs.sort_by(|r1, r2| {
+        docs.sort_by(|r1, r2| {
             // r1.score.partial_cmp(&r2.score).unwrap() // asc
             r1.score.partial_cmp(&r2.score).unwrap().reverse() // desc
         });
+
+        // trimming
+        let start = search_request.from as usize;
+        let mut end = search_request.limit as usize + start;
+        if docs.len() < end {
+            end = docs.len();
+        }
+        // docs = docs[start..end].to_vec();  // need to implement `Clone`
+        let json = serde_json::to_vec(&docs[start..end]).unwrap();
+        docs = serde_json::from_slice::<Vec<ScoredNamedFieldDocument>>(json.as_slice()).unwrap();
+
+        let ret_result = SearchResult { count, docs, facet };
 
         if resp_cnt != errs.len() {
             let ret = serde_json::to_vec(&ret_result).unwrap();
