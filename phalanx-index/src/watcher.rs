@@ -1,9 +1,8 @@
-use std::error::Error;
 use std::fs;
-use std::io::{Error as IOError, ErrorKind};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use anyhow::{anyhow, Result};
 use crossbeam::channel::{unbounded, TryRecvError};
 use lazy_static::lazy_static;
 use log::*;
@@ -23,53 +22,39 @@ use phalanx_kvs::kvs::{EventType, KVSContainer};
 use phalanx_proto::phalanx::{NodeDetails, Role, State};
 use phalanx_storage::storage::StorageContainer;
 
+const KEY_PATTERN: &'static str = r"^/([^/]+)/([^/]+)/([^/]+)\.json";
+
 lazy_static! {
-    static ref KEY_REGEX: Regex = Regex::new(r"^/([^/]+)/([^/]+)/([^/]+)\.json").unwrap();
+    static ref KEY_REGEX: Regex = Regex::new(KEY_PATTERN).unwrap();
 }
 
-fn parse_key(key: &str) -> Result<(String, String, String), IOError> {
+fn parse_key(key: &str) -> Result<(String, String, String)> {
     match KEY_REGEX.captures(key) {
         Some(cap) => {
-            let index_name = match cap.get(1) {
+            let value1 = match cap.get(1) {
                 Some(m) => m.as_str(),
                 None => {
-                    return Err(IOError::new(
-                        ErrorKind::Other,
-                        format!("index name doesn't match: key={}", key),
-                    ))
+                    return Err(anyhow!("value does not match"));
                 }
             };
 
-            let shard_name = match cap.get(2) {
+            let value2 = match cap.get(2) {
                 Some(m) => m.as_str(),
                 None => {
-                    return Err(IOError::new(
-                        ErrorKind::Other,
-                        format!("shard name doesn't match: key={}", key),
-                    ))
+                    return Err(anyhow!("value does not match"));
                 }
             };
 
-            let node_name = match cap.get(3) {
+            let value3 = match cap.get(3) {
                 Some(m) => m.as_str(),
                 None => {
-                    return Err(IOError::new(
-                        ErrorKind::Other,
-                        format!("node name doesn't match: key={}", key),
-                    ))
+                    return Err(anyhow!("value does not match"));
                 }
             };
 
-            Ok((
-                index_name.to_string(),
-                shard_name.to_string(),
-                node_name.to_string(),
-            ))
+            Ok((value1.to_string(), value2.to_string(), value3.to_string()))
         }
-        None => Err(IOError::new(
-            ErrorKind::Other,
-            "no match for the node meta key",
-        )),
+        None => Err(anyhow!("{:?} does not match {:?}", key, KEY_PATTERN)),
     }
 }
 
@@ -87,7 +72,7 @@ pub struct Watcher {
 }
 
 impl Watcher {
-    pub fn new(
+    pub async fn new(
         index_name: &str,
         shard_name: &str,
         node_name: &str,
@@ -115,7 +100,7 @@ impl Watcher {
         }
     }
 
-    pub async fn watch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn watch(&mut self) -> Result<()> {
         if self.kvs_container.kvs.get_type() == NOP_TYPE {
             debug!("the NOP discovery does not do anything");
             return Ok(());
@@ -124,7 +109,7 @@ impl Watcher {
         if self.receiving.load(Ordering::Relaxed) {
             let msg = "receiver is already running";
             warn!("{}", msg);
-            return Err(Box::new(IOError::new(ErrorKind::Other, msg)));
+            return Err(anyhow!(msg));
         }
 
         // initialize sender and receiver
@@ -134,10 +119,10 @@ impl Watcher {
         let key = format!("/{}/{}/", self.index_name, self.shard_name);
         match self.kvs_container.kvs.watch(sender, key.as_str()).await {
             Ok(_) => (),
-            Err(err) => {
-                let msg = format!("failed to watch: key={}, error={:?}", key, err);
+            Err(e) => {
+                let msg = format!("failed to watch: key={}, error={:?}", key, e);
                 error!("{}", msg);
-                return Err(err);
+                return Err(anyhow!(msg));
             }
         }
 
@@ -395,19 +380,19 @@ impl Watcher {
             debug!("stop cluster watch thread");
         });
 
-        let config_json = self
-            .kvs_container
-            .kvs
-            .export_config_json()
-            .unwrap_or("".to_string());
         let kvs_container = match self.kvs_container.kvs.get_type() {
             ETCD_TYPE => {
+                let config_json = self
+                    .kvs_container
+                    .kvs
+                    .export_config_json()
+                    .unwrap_or("".to_string());
                 let config = match serde_json::from_str::<EtcdConfig>(config_json.as_str()) {
                     Ok(config) => config,
                     Err(err) => {
                         let msg = format!("failed to  parse config JSON: error={:?}", err);
                         error!("{}", msg);
-                        return Err(Box::new(IOError::new(ErrorKind::Other, msg)));
+                        return Err(anyhow!(msg));
                     }
                 };
                 KVSContainer {
@@ -663,7 +648,7 @@ impl Watcher {
         Ok(())
     }
 
-    pub async fn unwatch(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn unwatch(&mut self) -> Result<()> {
         if self.kvs_container.kvs.get_type() == NOP_TYPE {
             debug!("the NOP discovery does not do anything");
             return Ok(());
@@ -672,15 +657,15 @@ impl Watcher {
         if !self.receiving.load(Ordering::Relaxed) {
             let msg = "receiver is not running";
             warn!("{}", msg);
-            return Err(Box::new(IOError::new(ErrorKind::Other, msg)));
+            return Err(anyhow!(msg));
         }
 
         match self.kvs_container.kvs.unwatch().await {
             Ok(_) => (),
-            Err(err) => {
-                let msg = format!("failed to unwatch: error={:?}", err);
+            Err(e) => {
+                let msg = format!("failed to unwatch: error={:?}", e);
                 error!("{}", msg);
-                return Err(err);
+                return Err(anyhow!(msg));
             }
         }
 

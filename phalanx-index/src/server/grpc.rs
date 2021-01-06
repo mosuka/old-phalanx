@@ -28,8 +28,8 @@ use phalanx_proto::phalanx::{
 use crate::index::config::IndexConfig;
 use crate::index::search_request::{CollectionType, SearchRequest};
 use crate::index::search_result::{ScoredNamedFieldDocument, SearchResult};
-use crate::index::watcher::Watcher;
 use crate::tokenizer::tokenizer_initializer::TokenizerInitializer;
+use crate::watcher::Watcher;
 
 lazy_static! {
     static ref REQUEST_COUNTER: CounterVec = register_counter_vec!(

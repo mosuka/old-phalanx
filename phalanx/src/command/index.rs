@@ -15,9 +15,9 @@ use tonic::Request;
 use phalanx_common::log::set_logger;
 use phalanx_common::path::expand_tilde;
 use phalanx_index::index::config::IndexConfig;
-use phalanx_index::index::watcher::Watcher;
 use phalanx_index::server::grpc::IndexService;
 use phalanx_index::server::http::handle;
+use phalanx_index::watcher::Watcher;
 use phalanx_kvs::kvs::etcd::{Etcd as EtcdDiscovery, EtcdConfig, TYPE as ETCD_DISCOVERY_TYPE};
 use phalanx_kvs::kvs::nop::{Nop as NopDiscovery, TYPE as NOP_DISCOVERY_TYPE};
 use phalanx_kvs::kvs::KVSContainer;
@@ -363,7 +363,7 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<()> {
         }
     };
 
-    // node watcher
+    // watcher
     let watcher = Watcher::new(
         index_name,
         shard_name,
@@ -371,9 +371,10 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<()> {
         kvs_container,
         index_directory,
         storage_container.clone(),
-    );
+    )
+    .await;
 
-    // start index service using gRPC
+    // start gRPC server
     let index_service = IndexService::new(index_config, watcher);
     tokio::spawn(
         TonicServer::builder()
@@ -395,7 +396,7 @@ pub async fn run_index(matches: &ArgMatches<'_>) -> Result<()> {
             }
         };
 
-    // start http service
+    // start http server
     let grpc_client2 = grpc_client.clone();
     let http_service = make_service_fn(move |_| {
         let grpc_client = grpc_client2.clone();

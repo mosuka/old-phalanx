@@ -5,6 +5,7 @@ authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0"
 #cang-jie = "0.10"
 cang-jie = { git = "https://github.com/mosuka/cang-jie", branch = "upgrade_tantivy" }
 crossbeam = "0.8"
