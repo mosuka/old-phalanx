@@ -382,9 +382,6 @@ impl Watcher {
 
                                 if primary_cnt <= 0 {
                                     warn!("there is no leader node");
-                                } else if primary_cnt > 1 {
-                                    error!("there are multiple leaders")
-                                } else {
                                     for (tmp_node_name, node_details) in shards {
                                         if node_details.state == State::Ready as i32
                                             && node_details.role == Role::Replica as i32
@@ -424,6 +421,10 @@ impl Watcher {
                                             };
                                         }
                                     }
+                                } else if primary_cnt > 1 {
+                                    error!("there are multiple leaders")
+                                } else {
+                                    debug!("there is already a leader")
                                 }
                             }
                         }
