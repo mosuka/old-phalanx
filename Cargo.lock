@@ -352,7 +352,7 @@ source = "git+https://github.com/mosuka/cang-jie?branch=upgrade_tantivy#4d6adc30
 dependencies = [
  "jieba-rs",
  "log",
- "tantivy 0.14.0-dev",
+ "tantivy 0.14.0-dev (git+https://github.com/mosuka/tantivy?branch=deserializable)",
 ]
 
 [[package]]
@@ -1548,7 +1548,7 @@ source = "git+https://github.com/mosuka/lindera-tantivy?branch=upgrade_tantivy#0
 dependencies = [
  "lindera",
  "lindera-core",
- "tantivy 0.14.0-dev",
+ "tantivy 0.14.0-dev (git+https://github.com/mosuka/tantivy?branch=deserializable)",
 ]
 
 [[package]]
@@ -2133,7 +2133,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "tantivy 0.14.0-dev",
+ "tantivy 0.14.0-dev (git+https://github.com/tantivy-search/tantivy?rev=670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e)",
  "tokio",
  "tonic",
  "walkdir",
@@ -3114,6 +3114,47 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.14.0-dev"
+source = "git+https://github.com/tantivy-search/tantivy?rev=670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e#670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e"
+dependencies = [
+ "base64 0.13.0",
+ "bitpacking",
+ "byteorder",
+ "census",
+ "chrono",
+ "crc32fast",
+ "crossbeam 0.8.0",
+ "downcast-rs",
+ "fail",
+ "fnv",
+ "fs2",
+ "futures",
+ "htmlescape",
+ "levenshtein_automata",
+ "log",
+ "lru",
+ "memmap",
+ "murmurhash32",
+ "num_cpus",
+ "once_cell",
+ "rayon",
+ "regex",
+ "rust-stemmers",
+ "serde",
+ "serde_json",
+ "smallvec",
+ "snap",
+ "stable_deref_trait",
+ "tantivy-fst",
+ "tantivy-query-grammar 0.14.0-dev (git+https://github.com/tantivy-search/tantivy?rev=670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e)",
+ "tempfile",
+ "thiserror",
+ "uuid",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "tantivy"
+version = "0.14.0-dev"
 source = "git+https://github.com/mosuka/tantivy?branch=deserializable#670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e"
 dependencies = [
  "base64 0.13.0",
@@ -3145,7 +3186,7 @@ dependencies = [
  "snap",
  "stable_deref_trait",
  "tantivy-fst",
- "tantivy-query-grammar 0.14.0-dev",
+ "tantivy-query-grammar 0.14.0-dev (git+https://github.com/mosuka/tantivy?branch=deserializable)",
  "tempfile",
  "thiserror",
  "uuid",
@@ -3168,6 +3209,14 @@ name = "tantivy-query-grammar"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ea03b8224ca9ff4ccfc7dfab790527c8a9d8edbc53f4677bdf6ba0fd8000c75"
+dependencies = [
+ "combine",
+]
+
+[[package]]
+name = "tantivy-query-grammar"
+version = "0.14.0-dev"
+source = "git+https://github.com/tantivy-search/tantivy?rev=670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e#670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e"
 dependencies = [
  "combine",
 ]
