@@ -2041,7 +2041,7 @@ dependencies = [
 
 [[package]]
 name = "phalanx"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "anyhow",
  "clap",
@@ -2071,7 +2071,7 @@ dependencies = [
 
 [[package]]
 name = "phalanx-discovery"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "anyhow",
  "crossbeam 0.8.0",
@@ -2090,7 +2090,7 @@ dependencies = [
 
 [[package]]
 name = "phalanx-dispatcher"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "anyhow",
  "crossbeam 0.8.0",
@@ -2114,7 +2114,7 @@ dependencies = [
 
 [[package]]
 name = "phalanx-index"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "anyhow",
  "cang-jie",
@@ -2141,7 +2141,7 @@ dependencies = [
 
 [[package]]
 name = "phalanx-kvs"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "async-std",
  "async-trait",
@@ -2160,7 +2160,7 @@ dependencies = [
 
 [[package]]
 name = "phalanx-proto"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "num",
  "prost",
@@ -2172,7 +2172,7 @@ dependencies = [
 
 [[package]]
 name = "phalanx-storage"
-version = "0.1.0"
+version = "0.1.0-dev"
 dependencies = [
  "async-std",
  "async-trait",

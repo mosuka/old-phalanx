@@ -1,6 +1,6 @@
 [package]
 name = "phalanx-storage"
-version = "0.1.0"
+version = "0.1.0-dev"
 authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
 edition = "2018"
 
