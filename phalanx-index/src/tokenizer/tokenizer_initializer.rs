@@ -95,7 +95,7 @@ impl TokenizerInitializer {
                     tokenizer = TextAnalyzer::from(
                         self.cang_jie_tokenizer_factory
                             .clone()
-                            .create(tokenizer_args.as_ref()),
+                            .create(tokenizer_args.as_str()),
                     );
                 }
                 "lindera" => {
