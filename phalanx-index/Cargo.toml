@@ -1,6 +1,6 @@
 [package]
 name = "phalanx-index"
-version = "0.1.0"
+version = "0.1.0-dev"
 authors = ["Minoru Osuka <minoru.osuka@gmail.com>"]
 edition = "2018"
 
@@ -27,6 +27,6 @@ tokio = { version = "0.2", features = [ "full" ] }
 tonic = "0.3"
 walkdir = "2.3"
 
-phalanx-kvs = { version = "0.1.0", path = "../phalanx-kvs" }
-phalanx-proto = { version = "0.1.0", path = "../phalanx-proto" }
-phalanx-storage = { version = "0.1.0", path = "../phalanx-storage" }
+phalanx-kvs = { version = "0.1.0-dev", path = "../phalanx-kvs" }
+phalanx-proto = { version = "0.1.0-dev", path = "../phalanx-proto" }
+phalanx-storage = { version = "0.1.0-dev", path = "../phalanx-storage" }
