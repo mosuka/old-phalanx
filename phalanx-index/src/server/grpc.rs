@@ -230,19 +230,6 @@ impl IndexService {
             }
         };
 
-        // let value_count = doc.get_all(self.unique_key_field).len();
-        // if value_count < 1 {
-        //     return Err(Box::new(IOError::new(
-        //         ErrorKind::Other,
-        //         format!("unique key field not included"),
-        //     )));
-        // } else if value_count > 1 {
-        //     return Err(Box::new(IOError::new(
-        //         ErrorKind::Other,
-        //         format!("multiple unique key fields included"),
-        //     )));
-        // }
-
         let id = match doc.get_first(self.unique_key_field).unwrap().text() {
             Some(id) => id,
             None => {
@@ -466,19 +453,24 @@ impl IndexService {
         }
 
         let facet_handle;
-        match search_request.facet_field {
-            Some(ref field_name) => match self.index.schema().get_field(&field_name) {
-                Some(field) => {
-                    if search_request.facet_prefixes.len() > 0 {
-                        let mut facet_collector = FacetCollector::for_field(field);
-                        for facet_prefix in &search_request.facet_prefixes {
-                            facet_collector.add_facet(facet_prefix);
+        match &search_request.facet_field {
+            Some(field_name) => match self.index.schema().get_field(field_name) {
+                Some(field) => match &search_request.facet_prefixes {
+                    Some(facet_prefixes) => {
+                        if facet_prefixes.len() > 0 {
+                            let mut facet_collector = FacetCollector::for_field(field);
+                            for facet_prefix in facet_prefixes {
+                                facet_collector.add_facet(facet_prefix);
+                            }
+                            facet_handle = Some(multi_collector.add_collector(facet_collector));
+                        } else {
+                            facet_handle = None;
                         }
-                        facet_handle = Some(multi_collector.add_collector(facet_collector));
-                    } else {
+                    }
+                    None => {
                         facet_handle = None;
                     }
-                }
+                },
                 None => {
                     facet_handle = None;
                 }
@@ -517,11 +509,18 @@ impl IndexService {
                 if let Some(fh) = facet_handle {
                     let facet_counts = fh.extract(&mut multi_fruit);
                     let mut facet_kv: HashMap<String, u64> = HashMap::new();
-                    for facet_prefix in &search_request.facet_prefixes {
-                        for (facet_key, facet_value) in facet_counts.get(facet_prefix) {
-                            facet_kv.insert(facet_key.to_string(), facet_value);
+
+                    match &search_request.facet_prefixes {
+                        Some(facet_prefixes) => {
+                            for facet_prefix in facet_prefixes {
+                                for (facet_key, facet_value) in facet_counts.get(facet_prefix) {
+                                    facet_kv.insert(facet_key.to_string(), facet_value);
+                                }
+                            }
                         }
+                        None => {}
                     }
+
                     match &search_request.facet_field {
                         Some(facet_field) => {
                             facet.insert(facet_field.to_string(), facet_kv);
