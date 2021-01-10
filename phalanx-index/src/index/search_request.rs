@@ -14,5 +14,5 @@ pub struct SearchRequest {
     pub limit: u64,
     pub collection_type: CollectionType,
     pub facet_field: Option<String>,
-    pub facet_prefixes: Vec<String>,
+    pub facet_prefixes: Option<Vec<String>>,
 }

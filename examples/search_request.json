@@ -2,7 +2,5 @@
   "query": "search",
   "from": 0,
   "limit": 10,
-  "collection_type": "CountAndTopDocs",
-  "facet_field": "",
-  "facet_prefixes": []
+  "collection_type": "CountAndTopDocs"
 }

@@ -424,7 +424,7 @@ impl Watcher {
                                 } else if primary_cnt > 1 {
                                     error!("there are multiple leaders")
                                 } else {
-                                    debug!("there is already a leader")
+                                    info!("there is already a leader")
                                 }
                             }
                         }
