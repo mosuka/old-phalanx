@@ -347,12 +347,13 @@ checksum = "631ae5198c9be5e753e5cc215e1bd73c2b466a3565173db433f52bb9d3e66dba"
 
 [[package]]
 name = "cang-jie"
-version = "0.10.0"
-source = "git+https://github.com/mosuka/cang-jie?branch=upgrade_tantivy#71c046ee158ea6170a7b66c3e3b1047f684672d3"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "795da110643104aae7631f8b78e99e5f6be41c51016c38decf81155470601d62"
 dependencies = [
  "jieba-rs",
  "log",
- "tantivy 0.14.0-dev",
+ "tantivy 0.14.0",
 ]
 
 [[package]]
@@ -634,6 +635,16 @@ checksum = "b584a330336237c1eecd3e94266efb216c56ed91225d634cb2991c5f3fd1aeab"
 dependencies = [
  "generic-array",
  "subtle",
+]
+
+[[package]]
+name = "ctor"
+version = "0.1.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10bcb9d7dcbf7002aaffbb53eac22906b64cdcc127971dcc387d8eb7c95d5560"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1543,12 +1554,13 @@ dependencies = [
 
 [[package]]
 name = "lindera-tantivy"
-version = "0.7.1"
-source = "git+https://github.com/mosuka/lindera-tantivy?branch=upgrade_tantivy#1a7feb5d5579ec4e78636278ac18e9b4a45e6e7d"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ceb3ba4b1279b57af415bff512d7b35616baf2c64229cc8e949164e0136fe207"
 dependencies = [
  "lindera",
  "lindera-core",
- "tantivy 0.14.0-dev",
+ "tantivy 0.14.0",
 ]
 
 [[package]]
@@ -1562,11 +1574,12 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.11"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fabed175da42fed1fa0746b0ea71f412aa9d35e76e95e59b192c64b9dc2bf8b"
+checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
+ "value-bag",
 ]
 
 [[package]]
@@ -2133,7 +2146,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "tantivy 0.14.0-dev",
+ "tantivy 0.14.0",
  "tokio",
  "tonic",
  "walkdir",
@@ -3113,8 +3126,9 @@ dependencies = [
 
 [[package]]
 name = "tantivy"
-version = "0.14.0-dev"
-source = "git+https://github.com/tantivy-search/tantivy?rev=670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e#670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edca90bddda472f39fdc74a031d61d52b08b1de97f2a704afae726a8004abb0d"
 dependencies = [
  "base64 0.13.0",
  "bitpacking",
@@ -3145,7 +3159,7 @@ dependencies = [
  "snap",
  "stable_deref_trait",
  "tantivy-fst",
- "tantivy-query-grammar 0.14.0-dev",
+ "tantivy-query-grammar 0.14.0",
  "tempfile",
  "thiserror",
  "uuid",
@@ -3174,8 +3188,9 @@ dependencies = [
 
 [[package]]
 name = "tantivy-query-grammar"
-version = "0.14.0-dev"
-source = "git+https://github.com/tantivy-search/tantivy?rev=670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e#670b6eaff6c62381c0ddcc44d6b3d2e82a3b3f1e"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70864085b31ecd5af8f53a76506440ece1c426d187f3d72f4b722e238d2ce19a"
 dependencies = [
  "combine",
 ]
@@ -3762,6 +3777,15 @@ checksum = "9fde2f6a4bea1d6e007c4ad38c6839fa71cbb63b6dbf5b595aa38dc9b1093c11"
 dependencies = [
  "rand 0.7.3",
  "serde",
+]
+
+[[package]]
+name = "value-bag"
+version = "1.0.0-alpha.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b676010e055c99033117c2343b33a40a30b91fecd6c49055ac9cd2d6c305ab1"
+dependencies = [
+ "ctor",
 ]
 
 [[package]]
