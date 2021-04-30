@@ -32,7 +32,7 @@ pub mod phalanx {
                 Address,
                 State,
                 Role,
-            };
+            }
 
             impl<'de> Deserialize<'de> for Field {
                 fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
