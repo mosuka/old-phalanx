@@ -1,6 +1,6 @@
-# Phalanx
+# This project has been taken over by [Phalanx](https://github.com/mosuka/phalanx).
 
-This project has been taken over by [Phalanx](https://github.com/mosuka/phalanx).
+# Phalanx
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
