@@ -1,5 +1,7 @@
 # Phalanx
 
+This project has been taken over by [Phalanx](https://github.com/mosuka/phalanx).
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Phalanx is a cloud-based index writer and searcher written in [Rust](https://www.rust-lang.org/).  
